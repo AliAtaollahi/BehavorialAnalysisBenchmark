@@ -1,0 +1,34 @@
+reactiveclass A(10){
+  knownrebecs{ B b; }
+  A(){ self.m1(true); }
+  msgsrv m1(boolean z){
+    if (z) b.m2(); }}
+
+reactiveclass B(10){
+  knownrebecs{ A a; IDS ids; }
+  statevars {
+    boolean x, y;}
+  B(){ x = true; }
+  msgsrv m2(){
+    ids.inspect(x);
+    y = x;
+    x = !x;
+    if (y)
+      self.m2() after (5);
+    else
+      a.m1(x || y);}}
+
+reactiveclass IDS(10){
+  statevars{ boolean lastPhase; boolean incident; }
+  IDS(){ lastPhase = false; incident = false; }
+  msgsrv inspect(boolean x){
+    if (x == lastPhase) incident = true;
+    lastPhase = x;
+  }
+}
+
+main {
+	A a(b):();
+	B b(a, ids):();
+	IDS ids():();
+}

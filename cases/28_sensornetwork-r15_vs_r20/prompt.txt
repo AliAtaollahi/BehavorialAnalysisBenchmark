@@ -1,0 +1,627 @@
+Please keep these in mind.
+Timed Rebeca programs:
+Interpret both programs using the following coarse semantics of Timed Rebeca:
+Actors and declarations: `reactiveclass` defines an actor class. Each actor has private `statevars`, references to other actors declared in `knownrebecs`, a constructor, and message handlers declared using `msgsrv`. Actors do not share variables. The `main` block creates the actors and binds their known-actor references and constructor arguments. In `C r(knownActors):(args)`, the first parentheses supply known actors and the second supply constructor arguments.
+Initialization: Execution starts at global time zero. State variables initially have their default values (`0` for integers and `false` for booleans). Constructors initialize actor state and may send initial messages.
+Sequential statements: Statements within a handler execute in source order. `x = e;` evaluates `e` using the current local state and assigns its value to `x`. Arithmetic, Boolean expressions, and comparisons have their usual meanings. `if (e) { S1 } else { S2 }` executes the branch selected by `e`; an omitted `else` does nothing when `e` is false.
+Nondeterministic assignment: `x = ?(e1, ..., en);` nondeterministically chooses one listed expression and assigns its value to `x`. Every possible choice contributes possible behavior.
+Asynchronous sends: `r.m(args);` sends a message to actor `r` without waiting for its execution or a reply. `self.m(args);` sends a message to the sending actor itself. Arguments are evaluated when the message is sent and stored in the message.
+Timed sends: `r.m(args) after d;`, executed at global time `t`, creates a message with arrival time `t + d`, where `d` is a nonnegative integer. Omitting `after` means `d = 0`. This annotation delays the message's eligibility for handling; it does not suspend the sender.
+Message handling: Each actor owns an unordered message bag, not a FIFO queue. A message is eligible when its arrival time equals the current global time. Handling removes it from the bag and executes its entire handler atomically, consuming zero time. The handler may update local state and add messages to recipients' bags. If several messages are eligible, their execution order is nondeterministic, including across different actors.
+Time progress: Time cannot advance while any message is eligible. Otherwise, if pending messages exist, the global clock jumps to their earliest arrival time. If all bags are empty, no further transition is enabled. This fragment excludes internal `delay` statements and `deadline` annotations. Assume Zeno-free execution.
+Transition labels and observations: Each complete message-handler execution is one transition labeled by its message-server name. Sending a message is not a separate observable transition. Time transitions are labeled by elapsed duration. If an observable-message set `O` is specified, handler labels outside `O` are replaced by `τ`; otherwise, all message-server names are observable. Apply the weak timed bisimulation definition below to these transition systems, considering all nondeterministic branches.
+
+Here equivalence means:
+We furthermore define $\toverto{t}$ as the relation between two states, if there is a path between them that time is advanced by $t\in \mathbb{N}$ time units in total. Note that this relation does not include actions.
+\[
+s \toverto{t} s' \text{  iff.  } \exists t_1,\dots t_n,s_1,\dots,s_n\cdot s \Rightarrow s_1 \wedge s_1\overto{t_1} s_2 \wedge s_2\Rightarrow s_3 \wedge \dots s_n \Rightarrow s' \text{ with }t = \sum_{i\leq n}t_i
+\]  
+
+\noindent
+A weak timed bisimulation expresses that two states are not distinguishable by the $\xRightarrow{a}$ $\toverto{t}$ relations.
+\begin{definition}[Weak Timed Bisimulation]
+\label{def:twt-equivalence}
+Let $\mathcal{T}=(S,\Act_\tau,\rightarrow,s_0)$ be a timed transition system. A binary relation $\mathcal{R}\subseteq S\times S$ is a \emph{weak timed simulation} if $s\,\mathcal{R}\,u$ implies:
+\begin{enumerate}
+  \item for every $a\in\Act$, if $s\xRightarrow{a}s'$, then there is a state $u'$ such that $u\xRightarrow{a}u'$ and $s'\,\mathcal{R}\,u'$;
+  \item for every $t\in\int$, if $s\toverto{t}s'$, then there is a state $u'$ such that $u\toverto{t}u'$ and $s'\,\mathcal{R}\,u'$.
+\end{enumerate}
+A relation $\mathcal{R}$ is a \emph{weak timed bisimulation} if both $\mathcal{R}$ and $\mathcal{R}^{-1}$ are weak timed simulations. Two states $s$ and $u$ are \emph{weakly timed bisimilar}, written $s\simeq_{wtb}u$, if $s\,\mathcal{R}\,u$ for some weak timed bisimulation $\mathcal{R}$.
+\end{definition}
+
+You are here to judge if two Timed Rebeca programs are weak timed bisimilar.
+Please do not write any code for judge. Just read code and give your guess.
+[Program 1]:
+reactiveclass Sensor(7) {
+    knownrebecs {
+        Admin admin;
+    }
+
+    statevars {
+        int id;
+        int period;
+		byte netDelay;
+    }
+
+    Sensor(int myId, int myPeriod) {
+        id = myId;
+        period = myPeriod;
+		netDelay = 1;
+        self.doReport();
+    }
+
+    msgsrv doReport() {
+
+        admin.report(id, ?(2, 4)) after(netDelay);
+        self.doReport() after(period);
+    }
+}
+
+reactiveclass Scientist(7) {
+    knownrebecs {
+        Admin admin;
+		Radio radio;
+		GPSTracker tracker;
+    }
+
+    Scientist() { }
+
+    msgsrv abortPlan() {
+        admin.ack() after(?(1, 4));
+        tracker.fix();
+        radio.relay();
+    }
+}
+
+reactiveclass Rescue(7) {
+    knownrebecs {
+        Admin admin;
+    }
+
+    Rescue() { }
+
+    msgsrv go() {
+        admin.rescueReach() after(?(1, 2));
+    }
+}
+
+reactiveclass Admin(13) {
+    knownrebecs {
+        Sensor sensor0;
+        Sensor sensor1;
+        Scientist scientist;
+        Rescue rescue;
+		SatelliteUplink uplink;
+    }
+
+    statevars {
+        boolean reported0;
+        int sensorValue0;
+        boolean reported1;
+        int sensorValue1;
+        boolean sensorFailure;
+        boolean danger;
+        boolean scientistAck;
+        boolean waitingAck;
+        boolean scientistReached;
+        boolean scientistDead;
+
+		byte rescueDeadline;
+		byte netDelay;
+		byte adminCheckDelay;
+		byte scientistDeadline;
+    }
+
+    Admin() {
+		rescueDeadline = 5;
+		netDelay = 1;
+		adminCheckDelay = 10;
+		scientistDeadline = 3;
+        self.checkSensors() after(5);
+    }
+
+    msgsrv report(int sensorId, int value) {
+        if (sensorId == 0) {
+            reported0 = true;
+            sensorValue0 = value;
+        } else {
+            reported1 = true;
+            sensorValue1 = value;
+        }
+    }
+
+    msgsrv rescueReach() {
+        scientistReached = true;
+    }
+
+    msgsrv checkSensors() {
+        if (reported0) reported0 = false;
+        else sensorFailure = true;
+
+        if (reported1) reported1 = false;
+        else sensorFailure = true;
+
+        danger = false;
+        if (sensorValue0 > 3) danger = true;
+        if (sensorValue1 > 3) danger = true;
+        uplink.send(danger);
+
+        if (danger) {
+            waitingAck = true;
+            scientist.abortPlan() after(netDelay);
+            self.checkScientistAck() after(scientistDeadline);
+        }
+
+        self.checkSensors() after(adminCheckDelay);
+    }
+
+    msgsrv checkRescue() {
+        if (!scientistReached) {
+            scientistDead = true;
+        } else {
+            scientistReached = false;
+        }
+    }
+
+    msgsrv ack() {
+        if (waitingAck) scientistAck = true;
+    }
+
+    msgsrv checkScientistAck() {
+        if (!scientistAck) {
+            rescue.go() after(netDelay);
+            self.checkRescue() after(rescueDeadline);
+        }
+        scientistAck = false;
+        waitingAck = false;
+    }
+}
+
+reactiveclass SatelliteUplink(7) {
+    knownrebecs {
+        GroundControl ground;
+    }
+    statevars {
+        boolean busy;
+    }
+    SatelliteUplink() { }
+    msgsrv send(boolean d) {
+        busy = true;
+        ground.status(d) after(2);
+    }
+}
+
+reactiveclass GroundControl(7) {
+    statevars {
+        boolean siteInDanger;
+    }
+    GroundControl() { }
+    msgsrv status(boolean d) {
+        siteInDanger = d;
+    }
+}
+
+reactiveclass Radio(7) {
+    knownrebecs {
+        BaseCamp camp;
+    }
+    Radio() { }
+    msgsrv relay() {
+        camp.informed() after(1);
+    }
+}
+
+reactiveclass BaseCamp(7) {
+    statevars {
+        boolean knowsAbort;
+    }
+    BaseCamp() { }
+    msgsrv informed() {
+        knowsAbort = true;
+    }
+}
+
+reactiveclass GPSTracker(7) {
+    knownrebecs {
+        SiteMap map;
+    }
+    statevars {
+        int zone;
+    }
+    GPSTracker() { }
+    msgsrv fix() {
+        zone = ?(1, 2);
+        map.position(zone);
+    }
+}
+
+reactiveclass SiteMap(7) {
+    statevars {
+        int scientistZone;
+    }
+    SiteMap() { }
+    msgsrv position(int z) {
+        scientistZone = z;
+    }
+}
+
+main {
+    Sensor sensor0(admin):(0, 10);
+    Sensor sensor1(admin):(1, 10);
+    Scientist scientist(admin, radio, tracker):();
+    Rescue rescue(admin):();
+    Admin admin(sensor0, sensor1, scientist, rescue, uplink):();
+	SatelliteUplink uplink(ground):();
+	GroundControl ground():();
+	Radio radio(camp):();
+	BaseCamp camp():();
+	GPSTracker tracker(siteMap):();
+	SiteMap siteMap():();
+}
+[Program 2]:
+reactiveclass Sensor(7) {
+    knownrebecs {
+        Admin admin;
+    }
+
+    statevars {
+        int id;
+        int period;
+		byte netDelay;
+    }
+
+    Sensor(int myId, int myPeriod) {
+        id = myId;
+        period = myPeriod;
+		netDelay = 1;
+        self.doReport();
+    }
+
+    msgsrv doReport() {
+
+        admin.report(id, ?(2, 4)) after(netDelay);
+        self.doReport() after(period);
+    }
+}
+
+reactiveclass Scientist(7) {
+    knownrebecs {
+        Admin admin;
+		GPSTracker tracker;
+		Radio radio;
+    }
+
+    Scientist() { }
+
+    msgsrv abortPlan() {
+        admin.ack() after(?(1, 4));
+        radio.relay();
+        tracker.fix();
+    }
+}
+
+reactiveclass Rescue(7) {
+    knownrebecs {
+        Admin admin;
+		Helicopter helicopter;
+    }
+
+    Rescue() { }
+
+    msgsrv go() {
+        admin.rescueReach() after(?(1, 2));
+        helicopter.takeOff();
+    }
+}
+
+reactiveclass Admin(13) {
+    knownrebecs {
+        Sensor sensor0;
+        Sensor sensor1;
+        Scientist scientist;
+        Rescue rescue;
+		DataLogger logger;
+		Siren siren;
+		SatelliteUplink uplink;
+		IncidentLog incidents;
+		RepairCrew crew;
+		MedicalTeam medical;
+    }
+
+    statevars {
+        boolean reported0;
+        int sensorValue0;
+        boolean reported1;
+        int sensorValue1;
+        boolean sensorFailure;
+        boolean danger;
+        boolean scientistAck;
+        boolean waitingAck;
+        boolean scientistReached;
+        boolean scientistDead;
+
+		byte rescueDeadline;
+		byte netDelay;
+		byte adminCheckDelay;
+		byte scientistDeadline;
+		int windSpeed;
+    }
+
+    Admin() {
+		rescueDeadline = 5;
+		netDelay = 1;
+		adminCheckDelay = 10;
+		scientistDeadline = 3;
+		windSpeed = 0;
+        self.checkSensors() after(5);
+    }
+
+    msgsrv report(int sensorId, int value) {
+        if (sensorId == 0) {
+            reported0 = true;
+            sensorValue0 = value;
+        } else {
+            reported1 = true;
+            sensorValue1 = value;
+        }
+    }
+
+    msgsrv rescueReach() {
+        scientistReached = true;
+    }
+
+    msgsrv checkSensors() {
+        if (reported0) reported0 = false;
+        else sensorFailure = true;
+
+        if (reported1) reported1 = false;
+        else sensorFailure = true;
+        if (sensorFailure) crew.repair();
+
+        danger = false;
+        if (sensorValue0 > 3) danger = true;
+        if (sensorValue1 > 3) danger = true;
+        uplink.send(danger);
+        logger.log(sensorValue0, sensorValue1, danger);
+
+        if (danger) {
+            waitingAck = true;
+            siren.sound();
+            scientist.abortPlan() after(netDelay);
+            self.checkScientistAck() after(scientistDeadline);
+        }
+
+        self.checkSensors() after(adminCheckDelay);
+    }
+
+    msgsrv checkRescue() {
+        if (!scientistReached) {
+            scientistDead = true;
+            medical.alert();
+        } else {
+            scientistReached = false;
+        }
+    }
+
+    msgsrv ack() {
+        if (waitingAck) scientistAck = true;
+        incidents.answer(waitingAck);
+    }
+
+    msgsrv checkScientistAck() {
+        if (!scientistAck) {
+            rescue.go() after(netDelay);
+            self.checkRescue() after(rescueDeadline);
+        }
+        scientistAck = false;
+        waitingAck = false;
+        siren.silence();
+    }
+
+    msgsrv sensorRepaired() {
+        sensorFailure = false;
+    }
+
+    msgsrv weather(int wind) {
+        windSpeed = wind;
+    }
+}
+
+reactiveclass DataLogger(7) {
+    statevars {
+        int lastValue0;
+        int lastValue1;
+        boolean lastDanger;
+    }
+    DataLogger() { }
+    msgsrv log(int v0, int v1, boolean d) {
+        lastValue0 = v0;
+        lastValue1 = v1;
+        lastDanger = d;
+    }
+}
+
+reactiveclass Siren(7) {
+    statevars {
+        boolean sounding;
+    }
+    Siren() { }
+    msgsrv sound() {
+        sounding = true;
+    }
+    msgsrv silence() {
+        sounding = false;
+    }
+}
+
+reactiveclass Helicopter(7) {
+    knownrebecs {
+        Hospital hospital;
+    }
+    statevars {
+        boolean airborne;
+    }
+    Helicopter() { }
+    msgsrv takeOff() {
+        airborne = true;
+        hospital.prepare() after(2);
+    }
+}
+
+reactiveclass Hospital(7) {
+    statevars {
+        boolean ready;
+    }
+    Hospital() { }
+    msgsrv prepare() {
+        ready = true;
+    }
+}
+
+reactiveclass GPSTracker(7) {
+    knownrebecs {
+        SiteMap map;
+    }
+    statevars {
+        int zone;
+    }
+    GPSTracker() { }
+    msgsrv fix() {
+        zone = ?(1, 2);
+        map.position(zone);
+    }
+}
+
+reactiveclass SiteMap(7) {
+    statevars {
+        int scientistZone;
+    }
+    SiteMap() { }
+    msgsrv position(int z) {
+        scientistZone = z;
+    }
+}
+
+reactiveclass SatelliteUplink(7) {
+    knownrebecs {
+        GroundControl ground;
+    }
+    statevars {
+        boolean busy;
+    }
+    SatelliteUplink() { }
+    msgsrv send(boolean d) {
+        busy = true;
+        ground.status(d) after(2);
+    }
+}
+
+reactiveclass GroundControl(7) {
+    statevars {
+        boolean siteInDanger;
+    }
+    GroundControl() { }
+    msgsrv status(boolean d) {
+        siteInDanger = d;
+    }
+}
+
+reactiveclass IncidentLog(7) {
+    statevars {
+        boolean lastInTime;
+        boolean entry;
+    }
+    IncidentLog() { }
+    msgsrv answer(boolean inTime) {
+        lastInTime = inTime;
+        entry = true;
+    }
+}
+
+reactiveclass RepairCrew(7) {
+    knownrebecs {
+        Admin admin;
+    }
+    statevars {
+        boolean onSite;
+    }
+    RepairCrew() { }
+    msgsrv repair() {
+        onSite = true;
+        admin.sensorRepaired() after(5);
+    }
+}
+
+reactiveclass MedicalTeam(7) {
+    statevars {
+        boolean alerted;
+    }
+    MedicalTeam() { }
+    msgsrv alert() {
+        alerted = true;
+    }
+}
+
+reactiveclass Radio(7) {
+    knownrebecs {
+        BaseCamp camp;
+    }
+    Radio() { }
+    msgsrv relay() {
+        camp.informed() after(1);
+    }
+}
+
+reactiveclass BaseCamp(7) {
+    statevars {
+        boolean knowsAbort;
+    }
+    BaseCamp() { }
+    msgsrv informed() {
+        knowsAbort = true;
+    }
+}
+
+reactiveclass WeatherStation(7) {
+    knownrebecs {
+        Admin admin;
+    }
+    statevars {
+        int wind;
+    }
+    WeatherStation() {
+        self.measure();
+    }
+    msgsrv measure() {
+        wind = ?(0, 1);
+        admin.weather(wind);
+        self.measure() after(10);
+    }
+}
+
+main {
+    Sensor sensor0(admin):(0, 10);
+    Sensor sensor1(admin):(1, 10);
+    Scientist scientist(admin, tracker, radio):();
+    Rescue rescue(admin, helicopter):();
+    Admin admin(sensor0, sensor1, scientist, rescue, logger, siren, uplink, incidents, crew, medical):();
+	DataLogger logger():();
+	Siren siren():();
+	Helicopter helicopter(hospital):();
+	Hospital hospital():();
+	GPSTracker tracker(siteMap):();
+	SiteMap siteMap():();
+	SatelliteUplink uplink(ground):();
+	GroundControl ground():();
+	IncidentLog incidents():();
+	RepairCrew crew(admin):();
+	MedicalTeam medical():();
+	Radio radio(camp):();
+	BaseCamp camp():();
+	WeatherStation weatherStation(admin):();
+}
+[Observable messages]:
+admin.checksensors,scientist.abortplan,admin.ack,rescue.go,time
+Please only output the answer of whether the
+two programs are equivalent or not. You should
+only output YES or NO.

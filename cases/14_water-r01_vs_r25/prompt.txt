@@ -1,0 +1,272 @@
+Please keep these in mind.
+Timed Rebeca programs:
+Interpret both programs using the following coarse semantics of Timed Rebeca:
+Actors and declarations: `reactiveclass` defines an actor class. Each actor has private `statevars`, references to other actors declared in `knownrebecs`, a constructor, and message handlers declared using `msgsrv`. Actors do not share variables. The `main` block creates the actors and binds their known-actor references and constructor arguments. In `C r(knownActors):(args)`, the first parentheses supply known actors and the second supply constructor arguments.
+Initialization: Execution starts at global time zero. State variables initially have their default values (`0` for integers and `false` for booleans). Constructors initialize actor state and may send initial messages.
+Sequential statements: Statements within a handler execute in source order. `x = e;` evaluates `e` using the current local state and assigns its value to `x`. Arithmetic, Boolean expressions, and comparisons have their usual meanings. `if (e) { S1 } else { S2 }` executes the branch selected by `e`; an omitted `else` does nothing when `e` is false.
+Nondeterministic assignment: `x = ?(e1, ..., en);` nondeterministically chooses one listed expression and assigns its value to `x`. Every possible choice contributes possible behavior.
+Asynchronous sends: `r.m(args);` sends a message to actor `r` without waiting for its execution or a reply. `self.m(args);` sends a message to the sending actor itself. Arguments are evaluated when the message is sent and stored in the message.
+Timed sends: `r.m(args) after d;`, executed at global time `t`, creates a message with arrival time `t + d`, where `d` is a nonnegative integer. Omitting `after` means `d = 0`. This annotation delays the message's eligibility for handling; it does not suspend the sender.
+Message handling: Each actor owns an unordered message bag, not a FIFO queue. A message is eligible when its arrival time equals the current global time. Handling removes it from the bag and executes its entire handler atomically, consuming zero time. The handler may update local state and add messages to recipients' bags. If several messages are eligible, their execution order is nondeterministic, including across different actors.
+Time progress: Time cannot advance while any message is eligible. Otherwise, if pending messages exist, the global clock jumps to their earliest arrival time. If all bags are empty, no further transition is enabled. This fragment excludes internal `delay` statements and `deadline` annotations. Assume Zeno-free execution.
+Transition labels and observations: Each complete message-handler execution is one transition labeled by its message-server name. Sending a message is not a separate observable transition. Time transitions are labeled by elapsed duration. If an observable-message set `O` is specified, handler labels outside `O` are replaced by `τ`; otherwise, all message-server names are observable. Apply the weak timed bisimulation definition below to these transition systems, considering all nondeterministic branches.
+
+Here equivalence means:
+We furthermore define $\toverto{t}$ as the relation between two states, if there is a path between them that time is advanced by $t\in \mathbb{N}$ time units in total. Note that this relation does not include actions.
+\[
+s \toverto{t} s' \text{  iff.  } \exists t_1,\dots t_n,s_1,\dots,s_n\cdot s \Rightarrow s_1 \wedge s_1\overto{t_1} s_2 \wedge s_2\Rightarrow s_3 \wedge \dots s_n \Rightarrow s' \text{ with }t = \sum_{i\leq n}t_i
+\]  
+
+\noindent
+A weak timed bisimulation expresses that two states are not distinguishable by the $\xRightarrow{a}$ $\toverto{t}$ relations.
+\begin{definition}[Weak Timed Bisimulation]
+\label{def:twt-equivalence}
+Let $\mathcal{T}=(S,\Act_\tau,\rightarrow,s_0)$ be a timed transition system. A binary relation $\mathcal{R}\subseteq S\times S$ is a \emph{weak timed simulation} if $s\,\mathcal{R}\,u$ implies:
+\begin{enumerate}
+  \item for every $a\in\Act$, if $s\xRightarrow{a}s'$, then there is a state $u'$ such that $u\xRightarrow{a}u'$ and $s'\,\mathcal{R}\,u'$;
+  \item for every $t\in\int$, if $s\toverto{t}s'$, then there is a state $u'$ such that $u\toverto{t}u'$ and $s'\,\mathcal{R}\,u'$.
+\end{enumerate}
+A relation $\mathcal{R}$ is a \emph{weak timed bisimulation} if both $\mathcal{R}$ and $\mathcal{R}^{-1}$ are weak timed simulations. Two states $s$ and $u$ are \emph{weakly timed bisimilar}, written $s\simeq_{wtb}u$, if $s\,\mathcal{R}\,u$ for some weak timed bisimulation $\mathcal{R}$.
+\end{definition}
+
+You are here to judge if two Timed Rebeca programs are weak timed bisimilar.
+Please do not write any code for judge. Just read code and give your guess.
+[Program 1]:
+reactiveclass PLC1(10){
+	knownrebecs{
+		WaterTank watertank;
+		Valve v1;
+		Valve v2;
+		Valve v3;
+	}
+	statevars{
+	}
+	PLC1(){
+	}
+	msgsrv update_plc(int T1_level, int T2_level){
+
+		if(T1_level == 1 && T2_level == 1)       { v1.open_valve();  v2.close_valve(); v3.close_valve(); }
+		else if (T1_level == 1 && T2_level == 2) { v1.open_valve();  v2.close_valve(); v3.close_valve(); }
+		else if (T1_level == 1 && T2_level == 3) { v1.open_valve();  v2.close_valve(); v3.open_valve();  }
+		else if (T1_level == 2 && T2_level == 1) { v1.open_valve();  v2.open_valve();  v3.close_valve(); }
+		else if (T1_level == 2 && T2_level == 2) { v1.open_valve();  v2.open_valve();  v3.close_valve(); }
+		else if (T1_level == 2 && T2_level == 3) { v1.open_valve();  v2.open_valve();  v3.open_valve();  }
+		else if (T1_level == 3 && T2_level == 1) { v1.close_valve(); v2.open_valve();  v3.close_valve(); }
+		else if (T1_level == 3 && T2_level == 2) { v1.close_valve(); v2.open_valve();  v3.close_valve(); }
+		else if (T1_level == 3 && T2_level == 3) { v1.close_valve(); v2.open_valve();  v3.open_valve();  }
+	}
+}
+
+reactiveclass LevelSensor(10) {
+	knownrebecs {
+		PLC1 plc1;
+		SCADA_HMI hmi;
+	}
+
+	LevelSensor() { }
+
+	msgsrv senseLevel(int tank_number, int water_level) {
+		plc1.update_plc(tank_number, water_level);
+		hmi.showLevels(tank_number, water_level);
+	}
+}
+
+reactiveclass WaterTank(10){
+	knownrebecs{
+		LevelSensor sensor;
+	}
+	statevars{
+		int T1_waterlevel;
+		int T2_waterlevel;
+	}
+	WaterTank(){
+		T1_waterlevel = 1;
+		T2_waterlevel = 1;
+		self.change_level();
+	}
+	msgsrv change_level(){
+
+		sensor.senseLevel(T1_waterlevel, T2_waterlevel);
+
+		if (T1_waterlevel == 1)
+			T1_waterlevel = ?(1, 2);
+		else if (T1_waterlevel == 2)
+			T1_waterlevel = ?(1, 2, 3);
+		else if (T1_waterlevel == 3)
+			T1_waterlevel = ?(2, 3);
+
+		if (T2_waterlevel == 1)
+			T2_waterlevel = ?(1, 2);
+		else if (T2_waterlevel == 2)
+			T2_waterlevel = ?(1, 2, 3);
+		else if (T2_waterlevel == 3)
+			T2_waterlevel = ?(2, 3);
+
+		self.change_level() after(10);
+	}
+}
+reactiveclass Valve(5){
+
+	statevars{
+		boolean is_open;
+	}
+
+	Valve(){
+		is_open = false;
+	}
+
+	msgsrv open_valve(){
+		is_open = true;
+
+	}
+
+	msgsrv close_valve(){
+		is_open = false;
+
+	}
+}
+
+reactiveclass SCADA_HMI(10){
+	statevars{
+		int shownT1;
+		int shownT2;
+	}
+	SCADA_HMI(){
+		shownT1 = 0;
+		shownT2 = 0;
+	}
+
+	msgsrv showLevels(int t1, int t2){
+		shownT1 = t1;
+		shownT2 = t2;
+	}
+}
+
+main {
+	PLC1 plc1(watertank,v1,v2,v3):();
+	LevelSensor sensor(plc1, hmi):();
+	WaterTank watertank(sensor):();
+	Valve v1():();
+	Valve v2():();
+	Valve v3():();
+	SCADA_HMI hmi():();
+}
+[Program 2]:
+reactiveclass PLC1(10){
+	knownrebecs{
+		WaterTank watertank;
+		Valve v1;
+		Valve v2;
+		Valve v3;
+	}
+	statevars{
+	}
+	PLC1(){
+	}
+	msgsrv update_plc(int T1_level, int T2_level){
+
+		if(T1_level == 1 && T2_level == 1)       { v1.open_valve();  v2.close_valve(); v3.close_valve(); }
+		else if (T1_level == 1 && T2_level == 2) { v1.open_valve();  v2.close_valve(); v3.close_valve(); }
+		else if (T1_level == 1 && T2_level == 3) { v1.open_valve();  v2.close_valve(); v3.open_valve();  }
+		else if (T1_level == 2 && T2_level == 1) { v1.open_valve();  v2.open_valve();  v3.close_valve(); }
+		else if (T1_level == 2 && T2_level == 2) { v1.open_valve();  v2.open_valve();  v3.close_valve(); }
+		else if (T1_level == 2 && T2_level == 3) { v1.open_valve();  v2.open_valve();  v3.open_valve();  }
+		else if (T1_level == 3 && T2_level == 1) { v1.close_valve(); v2.open_valve();  v3.close_valve(); }
+		else if (T1_level == 3 && T2_level == 2) { v1.close_valve(); v2.open_valve();  v3.close_valve(); }
+		else if (T1_level == 3 && T2_level == 3) { v1.close_valve(); v2.open_valve();  v3.open_valve();  }
+	}
+}
+
+reactiveclass LevelSensor(10) {
+	knownrebecs {
+		PLC1 plc1;
+	}
+
+	LevelSensor() { }
+
+	msgsrv senseLevel(int tank_number, int water_level) {
+		plc1.update_plc(tank_number, water_level);
+	}
+}
+
+reactiveclass WaterTank(10){
+	knownrebecs{
+		LevelSensor sensor;
+	}
+	statevars{
+		int T1_waterlevel;
+		int T2_waterlevel;
+	}
+	WaterTank(){
+		T1_waterlevel = 1;
+		T2_waterlevel = 1;
+		self.change_level();
+	}
+	msgsrv change_level(){
+
+		sensor.senseLevel(T1_waterlevel, T2_waterlevel);
+
+		if (T1_waterlevel == 1)
+			T1_waterlevel = ?(1, 2);
+		else if (T1_waterlevel == 2)
+			T1_waterlevel = ?(1, 2, 3);
+		else if (T1_waterlevel == 3)
+			T1_waterlevel = ?(2, 3);
+
+		if (T2_waterlevel == 1)
+			T2_waterlevel = ?(1, 2);
+		else if (T2_waterlevel == 2)
+			T2_waterlevel = ?(1, 2, 3);
+		else if (T2_waterlevel == 3)
+			T2_waterlevel = ?(2, 3);
+
+		self.change_level() after(10);
+	}
+}
+reactiveclass Valve(5){
+
+	statevars{
+		boolean is_open;
+	}
+
+	Valve(){
+		is_open = false;
+	}
+
+	msgsrv open_valve(){
+		is_open = true;
+
+	}
+
+	msgsrv close_valve(){
+		is_open = false;
+
+	}
+}
+
+reactiveclass RTU(10){
+	knownrebecs{
+		WaterTank watertank;
+	}
+	RTU(){
+		self.poll() after(5);
+	}
+	msgsrv poll(){
+		watertank.change_level();
+	}
+}
+
+main {
+	PLC1 plc1(watertank,v1,v2,v3):();
+	LevelSensor sensor(plc1):();
+	WaterTank watertank(sensor):();
+	Valve v1():();
+	Valve v2():();
+	Valve v3():();
+	RTU rtu(watertank):();
+}
+[Observable messages]:
+v1.open_valve,v1.close_valve,v2.open_valve,v2.close_valve,v3.open_valve,v3.close_valve,time
+Please only output the answer of whether the
+two programs are equivalent or not. You should
+only output YES or NO.

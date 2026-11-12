@@ -1,0 +1,230 @@
+reactiveclass PLC1(10){
+	knownrebecs{
+		WaterTank watertank;
+		Valve v1;
+		Valve v2;
+		Valve v3;
+		UVReactor uv;
+	}
+	statevars{
+		int mode;
+	}
+	PLC1(){
+		mode = 0;
+	}
+	msgsrv update_plc(int T1_level, int T2_level){
+		uv.setDose(T2_level);
+
+		if(T1_level == 1 && T2_level == 1)       { v1.open_valve();  v2.close_valve(); v3.close_valve(); }
+		else if (T1_level == 1 && T2_level == 2) { v1.open_valve();  v2.close_valve(); v3.close_valve(); }
+		else if (T1_level == 1 && T2_level == 3) { v1.open_valve();  v2.close_valve(); v3.open_valve();  }
+		else if (T1_level == 2 && T2_level == 1) { v1.open_valve();  v2.open_valve();  v3.close_valve(); }
+		else if (T1_level == 2 && T2_level == 2) { v1.open_valve();  v2.open_valve();  v3.close_valve(); }
+		else if (T1_level == 2 && T2_level == 3) { v1.open_valve();  v2.open_valve();  v3.open_valve();  }
+		else if (T1_level == 3 && T2_level == 1) { v1.close_valve(); v2.open_valve();  v3.close_valve(); }
+		else if (T1_level == 3 && T2_level == 2) { v1.close_valve(); v2.open_valve();  v3.close_valve(); }
+		else if (T1_level == 3 && T2_level == 3) { v1.close_valve(); v2.open_valve();  v3.open_valve();  }
+	}
+
+	msgsrv setMode(int m){
+		mode = m;
+	}
+}
+
+reactiveclass LevelSensor(10) {
+	knownrebecs {
+		PLC1 plc1;
+		SCADA_HMI hmi;
+		AlarmServer alarms;
+	}
+
+	LevelSensor() { }
+
+	msgsrv senseLevel(int tank_number, int water_level) {
+		plc1.update_plc(tank_number, water_level);
+		alarms.check(tank_number, water_level);
+		hmi.showLevels(tank_number, water_level);
+	}
+}
+
+reactiveclass WaterTank(10){
+	knownrebecs{
+		LevelSensor sensor;
+		OverflowDrain drain;
+	}
+	statevars{
+		int T1_waterlevel;
+		int T2_waterlevel;
+		boolean overflowing;
+	}
+	WaterTank(){
+		T1_waterlevel = 1;
+		T2_waterlevel = 1;
+		overflowing = false;
+		self.change_level();
+	}
+	msgsrv change_level(){
+
+		sensor.senseLevel(T1_waterlevel, T2_waterlevel);
+		if (T1_waterlevel == 3) overflowing = true;
+		else overflowing = false;
+		drain.overflow(overflowing);
+
+		if (T1_waterlevel == 1)
+			T1_waterlevel = ?(1, 2);
+		else if (T1_waterlevel == 2)
+			T1_waterlevel = ?(1, 2, 3);
+		else if (T1_waterlevel == 3)
+			T1_waterlevel = ?(2, 3);
+
+		if (T2_waterlevel == 1)
+			T2_waterlevel = ?(1, 2);
+		else if (T2_waterlevel == 2)
+			T2_waterlevel = ?(1, 2, 3);
+		else if (T2_waterlevel == 3)
+			T2_waterlevel = ?(2, 3);
+
+		self.change_level() after(10);
+	}
+}
+reactiveclass Valve(5){
+	knownrebecs{
+		LimitSwitch limitSwitch;
+	}
+
+	statevars{
+		boolean is_open;
+	}
+
+	Valve(){
+		is_open = false;
+	}
+
+	msgsrv open_valve(){
+		is_open = true;
+		limitSwitch.reached(true) after(1);
+
+	}
+
+	msgsrv close_valve(){
+		is_open = false;
+		limitSwitch.reached(false) after(1);
+
+	}
+}
+
+reactiveclass SCADA_HMI(10){
+	statevars{
+		int shownT1;
+		int shownT2;
+	}
+	SCADA_HMI(){
+		shownT1 = 0;
+		shownT2 = 0;
+	}
+
+	msgsrv showLevels(int t1, int t2){
+		shownT1 = t1;
+		shownT2 = t2;
+	}
+}
+
+reactiveclass AlarmServer(5){
+	knownrebecs{
+		Horn horn;
+	}
+	statevars{
+		boolean highLevel;
+	}
+	AlarmServer(){
+		highLevel = false;
+	}
+	msgsrv check(int t1, int t2){
+		if (t1 == 3 || t2 == 3) highLevel = true;
+		else highLevel = false;
+		if (highLevel) horn.sound();
+		else horn.silence();
+	}
+}
+
+reactiveclass Horn(5){
+	statevars{
+		boolean sounding;
+	}
+	Horn(){
+		sounding = false;
+	}
+	msgsrv sound(){
+		sounding = true;
+	}
+	msgsrv silence(){
+		sounding = false;
+	}
+}
+
+reactiveclass LimitSwitch(5){
+	statevars{
+		boolean confirmedOpen;
+	}
+	LimitSwitch(){
+		confirmedOpen = false;
+	}
+	msgsrv reached(boolean open){
+		confirmedOpen = open;
+	}
+}
+
+reactiveclass OverflowDrain(5){
+	statevars{
+		boolean draining;
+	}
+	OverflowDrain(){
+		draining = false;
+	}
+	msgsrv overflow(boolean on){
+		draining = on;
+	}
+}
+
+reactiveclass EngineeringStation(5){
+	knownrebecs{
+		PLC1 plc1;
+	}
+	EngineeringStation(){
+		self.switchMode() after(10);
+	}
+	msgsrv switchMode(){
+		plc1.setMode(1);
+	}
+}
+
+reactiveclass UVReactor(5){
+	statevars{
+		int lampPower;
+	}
+	UVReactor(){
+		lampPower = 0;
+	}
+	msgsrv setDose(int level){
+		if (level == 3) lampPower = 2;
+		else lampPower = 1;
+	}
+}
+
+main {
+	PLC1 plc1(watertank,v1,v2,v3, uv):();
+	LevelSensor sensor(plc1, hmi, alarms):();
+	WaterTank watertank(sensor, drain):();
+	Valve v1(ls_v1):();
+	Valve v2(ls_v2):();
+	Valve v3(ls_v3):();
+	SCADA_HMI hmi():();
+	AlarmServer alarms(horn):();
+	Horn horn():();
+	LimitSwitch ls_v1():();
+	LimitSwitch ls_v2():();
+	LimitSwitch ls_v3():();
+	OverflowDrain drain():();
+	EngineeringStation engineering(plc1):();
+	UVReactor uv():();
+}

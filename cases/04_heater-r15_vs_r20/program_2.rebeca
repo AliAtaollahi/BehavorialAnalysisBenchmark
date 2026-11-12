@@ -1,0 +1,359 @@
+reactiveclass Controller(10){
+	knownrebecs{
+            HC_Unit hc_unit;
+		PhoneApp app;
+		ThermostatDisplay display;
+	}
+	statevars{
+		boolean heating_active;
+		int sensedValue;
+		int targetTemp;
+		boolean windowWarning;
+	}
+	Controller(){
+		heating_active = false;
+		sensedValue = 20;
+		targetTemp = 0;
+		windowWarning = false;
+	}
+	msgsrv getSense(int temp){
+            sensedValue = temp;
+            display.showTemperature(temp);
+            if (21 > temp && heating_active == false) {
+            	hc_unit.activateh();
+            	heating_active = true;
+            	display.showFlame(true);
+            	app.push(true, temp);
+            } else if (21 <= temp && heating_active == true) {
+            	hc_unit.switchoff();
+            	heating_active = false;
+            	display.showFlame(false);
+            	app.push(false, temp);
+            }
+    }
+
+	msgsrv setTarget(int t){
+		targetTemp = t;
+	}
+
+	msgsrv windowState(boolean open){
+		windowWarning = open;
+	}
+}
+
+reactiveclass Room(5){
+	knownrebecs{
+            Sensor sensor;
+		WindowContact window;
+	}
+	statevars{
+            int temperature;
+            int outside_air_blowing;
+            int regulation;
+            }
+	Room(){
+
+            temperature = 21;
+            regulation = 0;
+            outside_air_blowing = 0;
+            self.tempchange();
+		}
+	msgsrv tempchange() {
+            	outside_air_blowing = ?(1,0);
+            	temperature = temperature - outside_air_blowing + regulation;
+            	sensor.getTemp(temperature);
+            	window.update(outside_air_blowing);
+            	self.tempchange() after(10);
+	}
+
+	msgsrv regulate(int v) {
+		regulation = v;
+	}
+}
+
+reactiveclass Sensor(5){
+	knownrebecs{
+            Room room;
+            Controller controller;
+		HomeGateway gateway;
+		FrostGuard frostGuard;
+	}
+	msgsrv getTemp(int temp) {
+           controller.getSense(temp);
+           frostGuard.check(temp);
+           gateway.publish(temp);
+   }
+}
+
+reactiveclass HC_Unit(5){
+	knownrebecs{
+            Room room;
+		Boiler boiler;
+		RadiatorValve livingValve;
+		RadiatorValve bedroomValve;
+		MaintenanceService service;
+	}
+	statevars{
+			boolean heater_on;
+		int starts;
+		boolean serviceDue;
+		boolean frostMode;
+	}
+	HC_Unit(){
+			heater_on = false;
+			starts = 0;
+			serviceDue = false;
+			frostMode = false;
+	}
+
+	msgsrv activateh(){
+			room.regulate(1);
+			heater_on = true;
+			starts = starts + 1;
+			if (starts == 3) {
+				serviceDue = true;
+				starts = 0;
+				service.book();
+			}
+			livingValve.open();
+			bedroomValve.open();
+			boiler.ignite();
+	}
+
+	msgsrv switchoff(){
+			room.regulate(0);
+			heater_on = false;
+			livingValve.close();
+			bedroomValve.close();
+			boiler.shutdown();
+	}
+
+	msgsrv serviced(){
+		serviceDue = false;
+	}
+
+	msgsrv frostProtection(boolean on){
+		frostMode = on;
+	}
+}
+
+reactiveclass PhoneApp(10){
+	statevars{
+		boolean heatingShown;
+		int lastChangeTemp;
+		boolean unread;
+	}
+	PhoneApp(){
+		heatingShown = false;
+		lastChangeTemp = 0;
+		unread = false;
+	}
+
+	msgsrv push(boolean on, int temp){
+		heatingShown = on;
+		lastChangeTemp = temp;
+		unread = true;
+		self.markRead() after(2);
+	}
+	msgsrv markRead(){
+		unread = false;
+	}
+}
+
+reactiveclass ThermostatDisplay(5){
+	statevars{
+		int shownTemp;
+		boolean flameIcon;
+		boolean backlight;
+	}
+	ThermostatDisplay(){
+		shownTemp = 0;
+		flameIcon = false;
+		backlight = false;
+	}
+	msgsrv showTemperature(int t){
+		shownTemp = t;
+		backlight = true;
+		self.dim() after(5);
+	}
+	msgsrv showFlame(boolean on){
+		flameIcon = on;
+	}
+	msgsrv dim(){
+		backlight = false;
+	}
+}
+
+reactiveclass Boiler(5){
+	knownrebecs{
+		CirculationPump pump;
+	}
+	statevars{
+		boolean flame;
+		int flowTemp;
+	}
+	Boiler(){
+		flame = false;
+		flowTemp = 20;
+	}
+	msgsrv ignite(){
+		flame = true;
+		flowTemp = 60;
+		pump.start() after(1);
+	}
+	msgsrv shutdown(){
+		flame = false;
+		flowTemp = 40;
+		pump.stop() after(2);
+	}
+}
+
+reactiveclass CirculationPump(5){
+	statevars{
+		boolean running;
+	}
+	CirculationPump(){
+		running = false;
+	}
+	msgsrv start(){
+		running = true;
+	}
+	msgsrv stop(){
+		running = false;
+	}
+}
+
+reactiveclass RadiatorValve(5){
+	statevars{
+		boolean opened;
+	}
+	RadiatorValve(){
+		opened = false;
+	}
+	msgsrv open(){
+		opened = true;
+	}
+	msgsrv close(){
+		opened = false;
+	}
+}
+
+reactiveclass HomeGateway(5){
+	knownrebecs{
+		CloudService cloud;
+	}
+	statevars{
+		int buffered;
+	}
+	HomeGateway(){
+		buffered = 0;
+	}
+	msgsrv publish(int t){
+		buffered = t;
+		cloud.store(t) after(1);
+	}
+}
+
+reactiveclass CloudService(5){
+	statevars{
+		int lastTemp;
+		boolean online;
+	}
+	CloudService(){
+		lastTemp = 0;
+		online = true;
+	}
+	msgsrv store(int t){
+		lastTemp = t;
+	}
+}
+
+reactiveclass MaintenanceService(5){
+	knownrebecs{
+		HC_Unit hc_unit;
+	}
+	statevars{
+		boolean visitBooked;
+	}
+	MaintenanceService(){
+		visitBooked = false;
+	}
+	msgsrv book(){
+		visitBooked = true;
+		self.visit() after(5);
+	}
+	msgsrv visit(){
+		visitBooked = false;
+		hc_unit.serviced();
+	}
+}
+
+reactiveclass FrostGuard(5){
+	knownrebecs{
+		HC_Unit hc_unit;
+	}
+	statevars{
+		boolean frost;
+	}
+	FrostGuard(){
+		frost = false;
+	}
+	msgsrv check(int t){
+		if (t < 5) frost = true;
+		else frost = false;
+		hc_unit.frostProtection(frost);
+	}
+}
+
+reactiveclass VoiceAssistant(5){
+	knownrebecs{
+		Controller controller;
+	}
+	statevars{
+		int requested;
+	}
+	VoiceAssistant(){
+		requested = 0;
+		self.userSpeaks() after(10);
+	}
+	msgsrv userSpeaks(){
+		requested = 22;
+		controller.setTarget(requested);
+	}
+}
+
+reactiveclass WindowContact(5){
+	knownrebecs{
+		Controller controller;
+	}
+	statevars{
+		boolean open;
+	}
+	WindowContact(){
+		open = false;
+	}
+	msgsrv update(int airflow){
+		if (airflow == 1) open = true;
+		else open = false;
+		controller.windowState(open);
+	}
+}
+
+main{
+	Room room(sensor, window):();
+	Controller controller(hc_unit, app, display):();
+	Sensor sensor(room,controller, gateway, frostGuard):();
+	HC_Unit hc_unit(room, boiler, livingValve, bedroomValve, service):();
+	PhoneApp app():();
+	ThermostatDisplay display():();
+	Boiler boiler(circulation):();
+	CirculationPump circulation():();
+	RadiatorValve livingValve():();
+	RadiatorValve bedroomValve():();
+	HomeGateway gateway(cloud):();
+	CloudService cloud():();
+	MaintenanceService service(hc_unit):();
+	FrostGuard frostGuard(hc_unit):();
+	VoiceAssistant voice(controller):();
+	WindowContact window(controller):();
+}

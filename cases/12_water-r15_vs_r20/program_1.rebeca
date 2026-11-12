@@ -1,0 +1,161 @@
+reactiveclass PLC1(10){
+	knownrebecs{
+		WaterTank watertank;
+		Valve v1;
+		Valve v2;
+		Valve v3;
+	}
+	statevars{
+		int backupT1;
+		int backupT2;
+	}
+	PLC1(){
+		backupT1 = 0;
+		backupT2 = 0;
+	}
+	msgsrv update_plc(int T1_level, int T2_level){
+
+		if(T1_level == 1 && T2_level == 1)       { v1.open_valve();  v2.close_valve(); v3.close_valve(); }
+		else if (T1_level == 1 && T2_level == 2) { v1.open_valve();  v2.close_valve(); v3.close_valve(); }
+		else if (T1_level == 1 && T2_level == 3) { v1.open_valve();  v2.close_valve(); v3.open_valve();  }
+		else if (T1_level == 2 && T2_level == 1) { v1.open_valve();  v2.open_valve();  v3.close_valve(); }
+		else if (T1_level == 2 && T2_level == 2) { v1.open_valve();  v2.open_valve();  v3.close_valve(); }
+		else if (T1_level == 2 && T2_level == 3) { v1.open_valve();  v2.open_valve();  v3.open_valve();  }
+		else if (T1_level == 3 && T2_level == 1) { v1.close_valve(); v2.open_valve();  v3.close_valve(); }
+		else if (T1_level == 3 && T2_level == 2) { v1.close_valve(); v2.open_valve();  v3.close_valve(); }
+		else if (T1_level == 3 && T2_level == 3) { v1.close_valve(); v2.open_valve();  v3.open_valve();  }
+	}
+
+	msgsrv backupLevels(int t1, int t2){
+		backupT1 = t1;
+		backupT2 = t2;
+	}
+}
+
+reactiveclass LevelSensor(10) {
+	knownrebecs {
+		PLC1 plc1;
+	}
+
+	LevelSensor() { }
+
+	msgsrv senseLevel(int tank_number, int water_level) {
+		plc1.update_plc(tank_number, water_level);
+	}
+}
+
+reactiveclass WaterTank(10){
+	knownrebecs{
+		LevelSensor sensor;
+		BackupLevelSensor backupSensor;
+		OverflowDrain drain;
+	}
+	statevars{
+		int T1_waterlevel;
+		int T2_waterlevel;
+		boolean overflowing;
+	}
+	WaterTank(){
+		T1_waterlevel = 1;
+		T2_waterlevel = 1;
+		overflowing = false;
+		self.change_level();
+	}
+	msgsrv change_level(){
+
+		sensor.senseLevel(T1_waterlevel, T2_waterlevel);
+		if (T1_waterlevel == 3) overflowing = true;
+		else overflowing = false;
+		drain.overflow(overflowing);
+		backupSensor.senseLevel(T1_waterlevel, T2_waterlevel);
+
+		if (T1_waterlevel == 1)
+			T1_waterlevel = ?(1, 2);
+		else if (T1_waterlevel == 2)
+			T1_waterlevel = ?(1, 2, 3);
+		else if (T1_waterlevel == 3)
+			T1_waterlevel = ?(2, 3);
+
+		if (T2_waterlevel == 1)
+			T2_waterlevel = ?(1, 2);
+		else if (T2_waterlevel == 2)
+			T2_waterlevel = ?(1, 2, 3);
+		else if (T2_waterlevel == 3)
+			T2_waterlevel = ?(2, 3);
+
+		self.change_level() after(10);
+	}
+}
+reactiveclass Valve(5){
+	knownrebecs{
+		LimitSwitch limitSwitch;
+	}
+
+	statevars{
+		boolean is_open;
+	}
+
+	Valve(){
+		is_open = false;
+	}
+
+	msgsrv open_valve(){
+		is_open = true;
+		limitSwitch.reached(true) after(1);
+
+	}
+
+	msgsrv close_valve(){
+		is_open = false;
+		limitSwitch.reached(false) after(1);
+
+	}
+}
+
+reactiveclass LimitSwitch(5){
+	statevars{
+		boolean confirmedOpen;
+	}
+	LimitSwitch(){
+		confirmedOpen = false;
+	}
+	msgsrv reached(boolean open){
+		confirmedOpen = open;
+	}
+}
+
+reactiveclass BackupLevelSensor(5){
+	knownrebecs{
+		PLC1 plc1;
+	}
+	BackupLevelSensor(){ }
+	msgsrv senseLevel(int t1, int t2){
+		plc1.backupLevels(t1, t2);
+	}
+}
+
+reactiveclass OverflowDrain(5){
+	statevars{
+		boolean draining;
+	}
+	OverflowDrain(){
+		draining = false;
+	}
+	msgsrv overflow(boolean on){
+		draining = on;
+	}
+}
+
+main {
+	PLC1 plc1(watertank,v1,v2,v3):();
+	LevelSensor sensor(plc1):();
+	WaterTank watertank(sensor, backupSensor, drain):();
+	Valve v1(ls_v1):();
+	Valve v2(ls_v2):();
+	Valve v3(ls_v3):();
+	LimitSwitch ls_v1():();
+	LimitSwitch ls_v2():();
+	LimitSwitch ls_v3():();
+	BackupLevelSensor backupSensor(plc1):();
+	OverflowDrain drain():();
+}

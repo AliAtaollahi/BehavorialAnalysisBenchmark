@@ -1,0 +1,896 @@
+Please keep these in mind.
+Timed Rebeca programs:
+Interpret both programs using the following coarse semantics of Timed Rebeca:
+Actors and declarations: `reactiveclass` defines an actor class. Each actor has private `statevars`, references to other actors declared in `knownrebecs`, a constructor, and message handlers declared using `msgsrv`. Actors do not share variables. The `main` block creates the actors and binds their known-actor references and constructor arguments. In `C r(knownActors):(args)`, the first parentheses supply known actors and the second supply constructor arguments.
+Initialization: Execution starts at global time zero. State variables initially have their default values (`0` for integers and `false` for booleans). Constructors initialize actor state and may send initial messages.
+Sequential statements: Statements within a handler execute in source order. `x = e;` evaluates `e` using the current local state and assigns its value to `x`. Arithmetic, Boolean expressions, and comparisons have their usual meanings. `if (e) { S1 } else { S2 }` executes the branch selected by `e`; an omitted `else` does nothing when `e` is false.
+Nondeterministic assignment: `x = ?(e1, ..., en);` nondeterministically chooses one listed expression and assigns its value to `x`. Every possible choice contributes possible behavior.
+Asynchronous sends: `r.m(args);` sends a message to actor `r` without waiting for its execution or a reply. `self.m(args);` sends a message to the sending actor itself. Arguments are evaluated when the message is sent and stored in the message.
+Timed sends: `r.m(args) after d;`, executed at global time `t`, creates a message with arrival time `t + d`, where `d` is a nonnegative integer. Omitting `after` means `d = 0`. This annotation delays the message's eligibility for handling; it does not suspend the sender.
+Message handling: Each actor owns an unordered message bag, not a FIFO queue. A message is eligible when its arrival time equals the current global time. Handling removes it from the bag and executes its entire handler atomically, consuming zero time. The handler may update local state and add messages to recipients' bags. If several messages are eligible, their execution order is nondeterministic, including across different actors.
+Time progress: Time cannot advance while any message is eligible. Otherwise, if pending messages exist, the global clock jumps to their earliest arrival time. If all bags are empty, no further transition is enabled. This fragment excludes internal `delay` statements and `deadline` annotations. Assume Zeno-free execution.
+Transition labels and observations: Each complete message-handler execution is one transition labeled by its message-server name. Sending a message is not a separate observable transition. Time transitions are labeled by elapsed duration. If an observable-message set `O` is specified, handler labels outside `O` are replaced by `τ`; otherwise, all message-server names are observable. Apply the weak timed bisimulation definition below to these transition systems, considering all nondeterministic branches.
+
+Here equivalence means:
+We furthermore define $\toverto{t}$ as the relation between two states, if there is a path between them that time is advanced by $t\in \mathbb{N}$ time units in total. Note that this relation does not include actions.
+\[
+s \toverto{t} s' \text{  iff.  } \exists t_1,\dots t_n,s_1,\dots,s_n\cdot s \Rightarrow s_1 \wedge s_1\overto{t_1} s_2 \wedge s_2\Rightarrow s_3 \wedge \dots s_n \Rightarrow s' \text{ with }t = \sum_{i\leq n}t_i
+\]  
+
+\noindent
+A weak timed bisimulation expresses that two states are not distinguishable by the $\xRightarrow{a}$ $\toverto{t}$ relations.
+\begin{definition}[Weak Timed Bisimulation]
+\label{def:twt-equivalence}
+Let $\mathcal{T}=(S,\Act_\tau,\rightarrow,s_0)$ be a timed transition system. A binary relation $\mathcal{R}\subseteq S\times S$ is a \emph{weak timed simulation} if $s\,\mathcal{R}\,u$ implies:
+\begin{enumerate}
+  \item for every $a\in\Act$, if $s\xRightarrow{a}s'$, then there is a state $u'$ such that $u\xRightarrow{a}u'$ and $s'\,\mathcal{R}\,u'$;
+  \item for every $t\in\int$, if $s\toverto{t}s'$, then there is a state $u'$ such that $u\toverto{t}u'$ and $s'\,\mathcal{R}\,u'$.
+\end{enumerate}
+A relation $\mathcal{R}$ is a \emph{weak timed bisimulation} if both $\mathcal{R}$ and $\mathcal{R}^{-1}$ are weak timed simulations. Two states $s$ and $u$ are \emph{weakly timed bisimilar}, written $s\simeq_{wtb}u$, if $s\,\mathcal{R}\,u$ for some weak timed bisimulation $\mathcal{R}$.
+\end{definition}
+
+You are here to judge if two Timed Rebeca programs are weak timed bisimilar.
+Please do not write any code for judge. Just read code and give your guess.
+[Program 1]:
+reactiveclass PLC1(10){
+	knownrebecs{
+		Pump1 pump1;
+		Valve valve;
+	}
+	statevars{
+		boolean openReqPlc2;
+		boolean pump1On;
+		boolean valveOpen;
+	}
+	PLC1(){
+		openReqPlc2 = false;
+		pump1On = false;
+		valveOpen = false;
+	}
+
+	msgsrv plc1_getSense(int waterLevel){
+		if (waterLevel == 1 && valveOpen) { valve.valve_close(); valveOpen = false; }
+		else if (waterLevel == 1 && !pump1On) { pump1.pump1_on(); pump1On = true; }
+		else if (waterLevel == 3 && pump1On) { pump1.pump1_off(); pump1On = false; }
+		else if (waterLevel >= 2 && openReqPlc2 && !valveOpen) { valve.valve_open(); valveOpen = true; }
+		else if (!openReqPlc2 && valveOpen) { valve.valve_close(); valveOpen = false; }
+	}
+	msgsrv plc1_openReq(){
+		openReqPlc2 = true;
+	}
+	msgsrv plc1_closeReq(){
+		openReqPlc2 = false;
+	}
+}
+
+reactiveclass PLC2(10){
+	knownrebecs{
+		PLC1 plc1;
+	}
+	statevars{
+		boolean requested;
+	}
+	PLC2(){
+		requested = false;
+	}
+
+	msgsrv plc2_getSense(int waterLevel){
+		if (waterLevel == 1 && !requested) { plc1.plc1_openReq(); requested = true; }
+		else if (waterLevel == 2 && requested) { plc1.plc1_closeReq(); requested = false; }
+	}
+}
+
+reactiveclass PLC3(10){
+	knownrebecs{
+		Pump2 pump2;
+		Pump2 pump2b;
+	}
+	statevars{
+		boolean pump2On;
+		boolean dutyA;
+	}
+	PLC3(){
+		pump2On = false;
+		dutyA = true;
+	}
+
+	msgsrv plc3_getSense(int waterLevel){
+
+		if (waterLevel == 2 && !pump2On) {
+			if (dutyA) pump2.pump2_on(); else pump2b.pump2_on();
+			pump2On = true;
+		} else if (waterLevel == 1 && pump2On) {
+			if (dutyA) pump2.pump2_off(); else pump2b.pump2_off();
+			pump2On = false;
+			dutyA = !dutyA;
+		}
+	}
+}
+
+reactiveclass Tank1(10){
+	knownrebecs{
+		sensorTank1 sensor;
+		Tank2 tank2;
+	}
+	statevars{
+		int level;
+		boolean pumping;
+		boolean draining;
+	}
+	Tank1(){
+		level = 1;
+		pumping = false;
+		draining = false;
+	}
+	msgsrv tank1_pump(boolean on){
+		pumping = on;
+	}
+	msgsrv tank1_valve(boolean open){
+		draining = open;
+	}
+
+	msgsrv tank1_status(){
+		if (pumping && level < 3) level = level + ?(0, 1);
+		if (draining && level > 1) {
+			level = level - 1;
+			tank2.tank2_waterIncrease();
+		}
+		sensor.sensor1_reportStatus(level);
+	}
+}
+
+reactiveclass Tank2(10){
+	knownrebecs{
+		sensorTank2 sensor;
+		reverseUnit unit;
+	}
+	statevars{
+		int level;
+	}
+	Tank2(){
+		level = 1;
+	}
+	msgsrv tank2_waterIncrease(){
+		if (level < 2) level = level + 1;
+	}
+	msgsrv tank2_waterDecrease(){
+		if (level > 1) level = level - 1;
+	}
+
+	msgsrv tank2_status(){
+		if (level == 2) unit.cleanWater();
+		sensor.sensor2_reportStatus(level);
+	}
+}
+
+reactiveclass Tank3(10){
+	knownrebecs{
+		sensorTank3 sensor;
+		ProductTank product;
+	}
+	statevars{
+		int level;
+		boolean delivering;
+	}
+	Tank3(){
+		level = 1;
+		delivering = false;
+	}
+	msgsrv tank3_pump(boolean on){
+		delivering = on;
+	}
+	msgsrv tank3_waterIncrease(){
+		if (level < 2) level = level + 1;
+	}
+
+	msgsrv tank3_status(){
+		if (delivering && level > 1) level = level - 1;
+		if (delivering) product.fill();
+		sensor.sensor3_reportStatus(level);
+	}
+}
+
+reactiveclass sensorTank1(10){
+	knownrebecs{
+		Tank1 tank1;
+		PLC1 plc1;
+	}
+	sensorTank1(){
+		self.sensor1_sense();
+	}
+	msgsrv sensor1_sense(){
+		tank1.tank1_status();
+		self.sensor1_sense() after(3);
+	}
+	msgsrv sensor1_reportStatus(int waterLevel){
+		plc1.plc1_getSense(waterLevel);
+	}
+}
+
+reactiveclass sensorTank2(10){
+	knownrebecs{
+		Tank2 tank2;
+		PLC2 plc2;
+	}
+	sensorTank2(){
+		self.sensor2_sense() after(1);
+	}
+	msgsrv sensor2_sense(){
+		tank2.tank2_status();
+		self.sensor2_sense() after(3);
+	}
+	msgsrv sensor2_reportStatus(int waterLevel){
+		plc2.plc2_getSense(waterLevel);
+	}
+}
+
+reactiveclass sensorTank3(10){
+	knownrebecs{
+		Tank3 tank3;
+		PLC3 plc3;
+	}
+	sensorTank3(){
+		self.sensor3_sense() after(2);
+	}
+	msgsrv sensor3_sense(){
+		tank3.tank3_status();
+		self.sensor3_sense() after(3);
+	}
+	msgsrv sensor3_reportStatus(int waterLevel){
+		plc3.plc3_getSense(waterLevel);
+	}
+}
+
+reactiveclass Pump1(10){
+	knownrebecs{
+		Tank1 tank1;
+		FlowTransmitter fit101;
+	}
+	statevars{
+		boolean pump1_on;
+	}
+	Pump1(){
+		pump1_on = false;
+	}
+	msgsrv pump1_on(){
+		fit101.flow(true);
+		pump1_on = true;
+		tank1.tank1_pump(true);
+	}
+	msgsrv pump1_off(){
+		fit101.flow(false);
+		pump1_on = false;
+		tank1.tank1_pump(false);
+	}
+}
+
+reactiveclass Valve(10){
+	knownrebecs{
+		Tank1 tank1;
+		FlowTransmitter fit201;
+	}
+	statevars{
+		boolean valve_open;
+	}
+	Valve(){
+		valve_open = false;
+	}
+	msgsrv valve_open(){
+		fit201.flow(true);
+		valve_open = true;
+		tank1.tank1_valve(true);
+	}
+	msgsrv valve_close(){
+		fit201.flow(false);
+		valve_open = false;
+		tank1.tank1_valve(false);
+	}
+}
+
+reactiveclass Pump2(10){
+	knownrebecs{
+		Tank3 tank3;
+	}
+	statevars{
+		boolean pump2_on;
+	}
+	Pump2(){
+		pump2_on = false;
+	}
+	msgsrv pump2_on(){
+		pump2_on = true;
+		tank3.tank3_pump(true);
+	}
+	msgsrv pump2_off(){
+		pump2_on = false;
+		tank3.tank3_pump(false);
+	}
+}
+
+reactiveclass reverseUnit(5){
+	knownrebecs{
+		Tank2 tank2;
+		Tank3 tank3;
+	}
+	statevars{
+		boolean drinkableWater;
+	}
+	reverseUnit(){
+		drinkableWater = false;
+	}
+
+	msgsrv cleanWater(){
+		drinkableWater = true;
+		tank2.tank2_waterDecrease();
+		tank3.tank3_waterIncrease();
+	}
+}
+
+reactiveclass ProductTank(10){
+	statevars{
+		int level;
+	}
+	ProductTank(){
+		level = 1;
+	}
+	msgsrv fill(){
+		if (level < 2) level = level + 1;
+		self.distribute() after(1);
+	}
+	msgsrv distribute(){
+		if (level > 1) level = level - 1;
+	}
+}
+
+reactiveclass FlowTransmitter(10){
+	statevars{
+		boolean flowing;
+	}
+	FlowTransmitter(){
+		flowing = false;
+	}
+	msgsrv flow(boolean f){
+		flowing = f;
+	}
+}
+
+main{
+	PLC1 plc1(pump1, valve):();
+	PLC2 plc2(plc1):();
+	PLC3 plc3(pump2, pump2b):();
+
+	Pump1 pump1(tank1, fit101):();
+	Pump2 pump2(tank3):();
+	Valve valve(tank1, fit201):();
+	reverseUnit unit(tank2, tank3):();
+
+	Tank1 tank1(sensor1, tank2):();
+	Tank2 tank2(sensor2, unit):();
+	Tank3 tank3(sensor3, product):();
+
+	sensorTank1 sensor1(tank1, plc1):();
+	sensorTank2 sensor2(tank2, plc2):();
+	sensorTank3 sensor3(tank3, plc3):();
+	ProductTank product():();
+	Pump2 pump2b(tank3):();
+	FlowTransmitter fit101():();
+	FlowTransmitter fit201():();
+}
+[Program 2]:
+reactiveclass PLC1(10){
+	knownrebecs{
+		Pump1 pump1;
+		Valve valve;
+		SCADA_HMI hmi;
+	}
+	statevars{
+		boolean openReqPlc2;
+		boolean pump1On;
+		boolean valveOpen;
+		boolean autoMode;
+	}
+	PLC1(){
+		openReqPlc2 = false;
+		pump1On = false;
+		valveOpen = false;
+		autoMode = false;
+	}
+
+	msgsrv plc1_getSense(int waterLevel){
+		hmi.stage(1, waterLevel);
+		if (waterLevel == 1 && valveOpen) { valve.valve_close(); valveOpen = false; }
+		else if (waterLevel == 1 && !pump1On) { pump1.pump1_on(); pump1On = true; }
+		else if (waterLevel == 3 && pump1On) { pump1.pump1_off(); pump1On = false; }
+		else if (waterLevel >= 2 && openReqPlc2 && !valveOpen) { valve.valve_open(); valveOpen = true; }
+		else if (!openReqPlc2 && valveOpen) { valve.valve_close(); valveOpen = false; }
+	}
+	msgsrv plc1_openReq(){
+		openReqPlc2 = true;
+	}
+	msgsrv plc1_closeReq(){
+		openReqPlc2 = false;
+	}
+
+	msgsrv setAutoMode(boolean a){
+		autoMode = a;
+	}
+}
+
+reactiveclass PLC2(10){
+	knownrebecs{
+		PLC1 plc1;
+		SCADA_HMI hmi;
+		DosingStation dosing;
+	}
+	statevars{
+		boolean requested;
+	}
+	PLC2(){
+		requested = false;
+	}
+
+	msgsrv plc2_getSense(int waterLevel){
+		dosing.tankLevel(waterLevel);
+		hmi.stage(2, waterLevel);
+		if (waterLevel == 1 && !requested) { plc1.plc1_openReq(); requested = true; }
+		else if (waterLevel == 2 && requested) { plc1.plc1_closeReq(); requested = false; }
+	}
+}
+
+reactiveclass PLC3(10){
+	knownrebecs{
+		Pump2 pump2;
+		SCADA_HMI hmi;
+		Pump2 pump2b;
+	}
+	statevars{
+		boolean pump2On;
+		boolean dutyA;
+	}
+	PLC3(){
+		pump2On = false;
+		dutyA = true;
+	}
+
+	msgsrv plc3_getSense(int waterLevel){
+		hmi.stage(3, waterLevel);
+
+		if (waterLevel == 2 && !pump2On) {
+			if (dutyA) pump2.pump2_on(); else pump2b.pump2_on();
+			pump2On = true;
+		} else if (waterLevel == 1 && pump2On) {
+			if (dutyA) pump2.pump2_off(); else pump2b.pump2_off();
+			pump2On = false;
+			dutyA = !dutyA;
+		}
+	}
+}
+
+reactiveclass Tank1(10){
+	knownrebecs{
+		sensorTank1 sensor;
+		Tank2 tank2;
+		TurbidityAnalyser analyser;
+	}
+	statevars{
+		int level;
+		boolean pumping;
+		boolean draining;
+	}
+	Tank1(){
+		level = 1;
+		pumping = false;
+		draining = false;
+	}
+	msgsrv tank1_pump(boolean on){
+		pumping = on;
+	}
+	msgsrv tank1_valve(boolean open){
+		draining = open;
+	}
+
+	msgsrv tank1_status(){
+		if (pumping && level < 3) level = level + ?(0, 1);
+		if (draining && level > 1) {
+			level = level - 1;
+			tank2.tank2_waterIncrease();
+		}
+		sensor.sensor1_reportStatus(level);
+		analyser.sample();
+	}
+}
+
+reactiveclass Tank2(10){
+	knownrebecs{
+		sensorTank2 sensor;
+		reverseUnit unit;
+	}
+	statevars{
+		int level;
+	}
+	Tank2(){
+		level = 1;
+	}
+	msgsrv tank2_waterIncrease(){
+		if (level < 2) level = level + 1;
+	}
+	msgsrv tank2_waterDecrease(){
+		if (level > 1) level = level - 1;
+	}
+
+	msgsrv tank2_status(){
+		if (level == 2) unit.cleanWater();
+		sensor.sensor2_reportStatus(level);
+	}
+}
+
+reactiveclass Tank3(10){
+	knownrebecs{
+		sensorTank3 sensor;
+		ProductTank product;
+	}
+	statevars{
+		int level;
+		boolean delivering;
+	}
+	Tank3(){
+		level = 1;
+		delivering = false;
+	}
+	msgsrv tank3_pump(boolean on){
+		delivering = on;
+	}
+	msgsrv tank3_waterIncrease(){
+		if (level < 2) level = level + 1;
+	}
+
+	msgsrv tank3_status(){
+		if (delivering && level > 1) level = level - 1;
+		if (delivering) product.fill();
+		sensor.sensor3_reportStatus(level);
+	}
+}
+
+reactiveclass sensorTank1(10){
+	knownrebecs{
+		Tank1 tank1;
+		PLC1 plc1;
+		Historian historian;
+	}
+	sensorTank1(){
+		self.sensor1_sense();
+	}
+	msgsrv sensor1_sense(){
+		tank1.tank1_status();
+		self.sensor1_sense() after(3);
+	}
+	msgsrv sensor1_reportStatus(int waterLevel){
+		plc1.plc1_getSense(waterLevel);
+		historian.archive(1, waterLevel);
+	}
+}
+
+reactiveclass sensorTank2(10){
+	knownrebecs{
+		Tank2 tank2;
+		PLC2 plc2;
+		Historian historian;
+	}
+	sensorTank2(){
+		self.sensor2_sense() after(1);
+	}
+	msgsrv sensor2_sense(){
+		tank2.tank2_status();
+		self.sensor2_sense() after(3);
+	}
+	msgsrv sensor2_reportStatus(int waterLevel){
+		plc2.plc2_getSense(waterLevel);
+		historian.archive(2, waterLevel);
+	}
+}
+
+reactiveclass sensorTank3(10){
+	knownrebecs{
+		Tank3 tank3;
+		PLC3 plc3;
+		Historian historian;
+	}
+	sensorTank3(){
+		self.sensor3_sense() after(2);
+	}
+	msgsrv sensor3_sense(){
+		tank3.tank3_status();
+		self.sensor3_sense() after(3);
+	}
+	msgsrv sensor3_reportStatus(int waterLevel){
+		plc3.plc3_getSense(waterLevel);
+		historian.archive(3, waterLevel);
+	}
+}
+
+reactiveclass Pump1(10){
+	knownrebecs{
+		Tank1 tank1;
+		IDS ids;
+		FlowTransmitter fit101;
+	}
+	statevars{
+		boolean pump1_on;
+	}
+	Pump1(){
+		pump1_on = false;
+	}
+	msgsrv pump1_on(){
+		fit101.flow(true);
+		ids.command(1);
+		pump1_on = true;
+		tank1.tank1_pump(true);
+	}
+	msgsrv pump1_off(){
+		fit101.flow(false);
+		ids.command(2);
+		pump1_on = false;
+		tank1.tank1_pump(false);
+	}
+}
+
+reactiveclass Valve(10){
+	knownrebecs{
+		Tank1 tank1;
+		IDS ids;
+		FlowTransmitter fit201;
+	}
+	statevars{
+		boolean valve_open;
+	}
+	Valve(){
+		valve_open = false;
+	}
+	msgsrv valve_open(){
+		fit201.flow(true);
+		ids.command(3);
+		valve_open = true;
+		tank1.tank1_valve(true);
+	}
+	msgsrv valve_close(){
+		fit201.flow(false);
+		ids.command(4);
+		valve_open = false;
+		tank1.tank1_valve(false);
+	}
+}
+
+reactiveclass Pump2(10){
+	knownrebecs{
+		Tank3 tank3;
+		UVDechlorinator uv;
+	}
+	statevars{
+		boolean pump2_on;
+	}
+	Pump2(){
+		pump2_on = false;
+	}
+	msgsrv pump2_on(){
+		uv.lamps(true);
+		pump2_on = true;
+		tank3.tank3_pump(true);
+	}
+	msgsrv pump2_off(){
+		uv.lamps(false);
+		pump2_on = false;
+		tank3.tank3_pump(false);
+	}
+}
+
+reactiveclass reverseUnit(5){
+	knownrebecs{
+		Tank2 tank2;
+		Tank3 tank3;
+		UltraFiltration uf;
+	}
+	statevars{
+		boolean drinkableWater;
+	}
+	reverseUnit(){
+		drinkableWater = false;
+	}
+
+	msgsrv cleanWater(){
+		drinkableWater = true;
+		uf.filter();
+		tank2.tank2_waterDecrease();
+		tank3.tank3_waterIncrease();
+	}
+}
+
+reactiveclass SCADA_HMI(10){
+	statevars{
+		int level1;
+		int level2;
+		int level3;
+	}
+	SCADA_HMI(){
+		level1 = 0;
+		level2 = 0;
+		level3 = 0;
+	}
+	msgsrv stage(int n, int waterLevel){
+		if (n == 1) level1 = waterLevel;
+		else if (n == 2) level2 = waterLevel;
+		else level3 = waterLevel;
+	}
+}
+
+reactiveclass Historian(10){
+	statevars{
+		int lastStage;
+		int lastLevel;
+	}
+	Historian(){
+		lastStage = 0;
+		lastLevel = 0;
+	}
+	msgsrv archive(int n, int waterLevel){
+		lastStage = n;
+		lastLevel = waterLevel;
+	}
+}
+
+reactiveclass DosingStation(10){
+	statevars{
+		boolean naoclPump;
+		boolean hclPump;
+		int ph;
+	}
+	DosingStation(){
+		naoclPump = false;
+		hclPump = false;
+		ph = 7;
+	}
+	msgsrv tankLevel(int waterLevel){
+		if (waterLevel == 1) naoclPump = true;
+		else naoclPump = false;
+		self.analyse() after(1);
+	}
+	msgsrv analyse(){
+		ph = ?(7, 8);
+		if (ph > 7) hclPump = true;
+		else hclPump = false;
+	}
+}
+
+reactiveclass UltraFiltration(10){
+	statevars{
+		int batches;
+		boolean backwash;
+	}
+	UltraFiltration(){
+		batches = 0;
+		backwash = false;
+	}
+	msgsrv filter(){
+		batches = (batches + 1) % 3;
+		if (batches == 0) backwash = true;
+		else backwash = false;
+	}
+}
+
+reactiveclass UVDechlorinator(10){
+	statevars{
+		boolean lampsOn;
+	}
+	UVDechlorinator(){
+		lampsOn = false;
+	}
+	msgsrv lamps(boolean on){
+		lampsOn = on;
+	}
+}
+
+reactiveclass ProductTank(10){
+	statevars{
+		int level;
+	}
+	ProductTank(){
+		level = 1;
+	}
+	msgsrv fill(){
+		if (level < 2) level = level + 1;
+		self.distribute() after(1);
+	}
+	msgsrv distribute(){
+		if (level > 1) level = level - 1;
+	}
+}
+
+reactiveclass IDS(10){
+	statevars{
+		int lastCommand;
+		boolean suspicious;
+	}
+	IDS(){
+		lastCommand = 0;
+		suspicious = false;
+	}
+	msgsrv command(int c){
+		if (c == lastCommand) suspicious = true;
+		lastCommand = c;
+	}
+}
+
+reactiveclass EngineeringWorkstation(10){
+	knownrebecs{
+		PLC1 plc1;
+	}
+	EngineeringWorkstation(){
+		self.switchMode() after(3);
+	}
+	msgsrv switchMode(){
+		plc1.setAutoMode(false);
+	}
+}
+
+reactiveclass FlowTransmitter(10){
+	statevars{
+		boolean flowing;
+	}
+	FlowTransmitter(){
+		flowing = false;
+	}
+	msgsrv flow(boolean f){
+		flowing = f;
+	}
+}
+
+reactiveclass TurbidityAnalyser(10){
+	statevars{
+		int turbidity;
+		boolean alarm;
+	}
+	TurbidityAnalyser(){
+		turbidity = 1;
+		alarm = false;
+	}
+	msgsrv sample(){
+		turbidity = ?(1, 2);
+		if (turbidity == 2) alarm = true;
+		else alarm = false;
+	}
+}
+
+main{
+	PLC1 plc1(pump1, valve, hmi):();
+	PLC2 plc2(plc1, hmi, dosing):();
+	PLC3 plc3(pump2, hmi, pump2b):();
+
+	Pump1 pump1(tank1, ids, fit101):();
+	Pump2 pump2(tank3, uv):();
+	Valve valve(tank1, ids, fit201):();
+	reverseUnit unit(tank2, tank3, uf):();
+
+	Tank1 tank1(sensor1, tank2, analyser):();
+	Tank2 tank2(sensor2, unit):();
+	Tank3 tank3(sensor3, product):();
+
+	sensorTank1 sensor1(tank1, plc1, historian):();
+	sensorTank2 sensor2(tank2, plc2, historian):();
+	sensorTank3 sensor3(tank3, plc3, historian):();
+	SCADA_HMI hmi():();
+	Historian historian():();
+	DosingStation dosing():();
+	UltraFiltration uf():();
+	UVDechlorinator uv():();
+	ProductTank product():();
+	IDS ids():();
+	EngineeringWorkstation engineering(plc1):();
+	FlowTransmitter fit101():();
+	FlowTransmitter fit201():();
+	Pump2 pump2b(tank3, uv):();
+	TurbidityAnalyser analyser():();
+}
+[Observable messages]:
+plc1.plc1_getsense,pump1.pump1_on,pump1.pump1_off,valve.valve_open,valve.valve_close,time
+Please only output the answer of whether the
+two programs are equivalent or not. You should
+only output YES or NO.

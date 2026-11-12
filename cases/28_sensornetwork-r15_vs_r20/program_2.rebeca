@@ -1,0 +1,361 @@
+reactiveclass Sensor(7) {
+    knownrebecs {
+        Admin admin;
+    }
+
+    statevars {
+        int id;
+        int period;
+		byte netDelay;
+    }
+
+    Sensor(int myId, int myPeriod) {
+        id = myId;
+        period = myPeriod;
+		netDelay = 1;
+        self.doReport();
+    }
+
+    msgsrv doReport() {
+
+        admin.report(id, ?(2, 4)) after(netDelay);
+        self.doReport() after(period);
+    }
+}
+
+reactiveclass Scientist(7) {
+    knownrebecs {
+        Admin admin;
+		GPSTracker tracker;
+		Radio radio;
+    }
+
+    Scientist() { }
+
+    msgsrv abortPlan() {
+        admin.ack() after(?(1, 4));
+        radio.relay();
+        tracker.fix();
+    }
+}
+
+reactiveclass Rescue(7) {
+    knownrebecs {
+        Admin admin;
+		Helicopter helicopter;
+    }
+
+    Rescue() { }
+
+    msgsrv go() {
+        admin.rescueReach() after(?(1, 2));
+        helicopter.takeOff();
+    }
+}
+
+reactiveclass Admin(13) {
+    knownrebecs {
+        Sensor sensor0;
+        Sensor sensor1;
+        Scientist scientist;
+        Rescue rescue;
+		DataLogger logger;
+		Siren siren;
+		SatelliteUplink uplink;
+		IncidentLog incidents;
+		RepairCrew crew;
+		MedicalTeam medical;
+    }
+
+    statevars {
+        boolean reported0;
+        int sensorValue0;
+        boolean reported1;
+        int sensorValue1;
+        boolean sensorFailure;
+        boolean danger;
+        boolean scientistAck;
+        boolean waitingAck;
+        boolean scientistReached;
+        boolean scientistDead;
+
+		byte rescueDeadline;
+		byte netDelay;
+		byte adminCheckDelay;
+		byte scientistDeadline;
+		int windSpeed;
+    }
+
+    Admin() {
+		rescueDeadline = 5;
+		netDelay = 1;
+		adminCheckDelay = 10;
+		scientistDeadline = 3;
+		windSpeed = 0;
+        self.checkSensors() after(5);
+    }
+
+    msgsrv report(int sensorId, int value) {
+        if (sensorId == 0) {
+            reported0 = true;
+            sensorValue0 = value;
+        } else {
+            reported1 = true;
+            sensorValue1 = value;
+        }
+    }
+
+    msgsrv rescueReach() {
+        scientistReached = true;
+    }
+
+    msgsrv checkSensors() {
+        if (reported0) reported0 = false;
+        else sensorFailure = true;
+
+        if (reported1) reported1 = false;
+        else sensorFailure = true;
+        if (sensorFailure) crew.repair();
+
+        danger = false;
+        if (sensorValue0 > 3) danger = true;
+        if (sensorValue1 > 3) danger = true;
+        uplink.send(danger);
+        logger.log(sensorValue0, sensorValue1, danger);
+
+        if (danger) {
+            waitingAck = true;
+            siren.sound();
+            scientist.abortPlan() after(netDelay);
+            self.checkScientistAck() after(scientistDeadline);
+        }
+
+        self.checkSensors() after(adminCheckDelay);
+    }
+
+    msgsrv checkRescue() {
+        if (!scientistReached) {
+            scientistDead = true;
+            medical.alert();
+        } else {
+            scientistReached = false;
+        }
+    }
+
+    msgsrv ack() {
+        if (waitingAck) scientistAck = true;
+        incidents.answer(waitingAck);
+    }
+
+    msgsrv checkScientistAck() {
+        if (!scientistAck) {
+            rescue.go() after(netDelay);
+            self.checkRescue() after(rescueDeadline);
+        }
+        scientistAck = false;
+        waitingAck = false;
+        siren.silence();
+    }
+
+    msgsrv sensorRepaired() {
+        sensorFailure = false;
+    }
+
+    msgsrv weather(int wind) {
+        windSpeed = wind;
+    }
+}
+
+reactiveclass DataLogger(7) {
+    statevars {
+        int lastValue0;
+        int lastValue1;
+        boolean lastDanger;
+    }
+    DataLogger() { }
+    msgsrv log(int v0, int v1, boolean d) {
+        lastValue0 = v0;
+        lastValue1 = v1;
+        lastDanger = d;
+    }
+}
+
+reactiveclass Siren(7) {
+    statevars {
+        boolean sounding;
+    }
+    Siren() { }
+    msgsrv sound() {
+        sounding = true;
+    }
+    msgsrv silence() {
+        sounding = false;
+    }
+}
+
+reactiveclass Helicopter(7) {
+    knownrebecs {
+        Hospital hospital;
+    }
+    statevars {
+        boolean airborne;
+    }
+    Helicopter() { }
+    msgsrv takeOff() {
+        airborne = true;
+        hospital.prepare() after(2);
+    }
+}
+
+reactiveclass Hospital(7) {
+    statevars {
+        boolean ready;
+    }
+    Hospital() { }
+    msgsrv prepare() {
+        ready = true;
+    }
+}
+
+reactiveclass GPSTracker(7) {
+    knownrebecs {
+        SiteMap map;
+    }
+    statevars {
+        int zone;
+    }
+    GPSTracker() { }
+    msgsrv fix() {
+        zone = ?(1, 2);
+        map.position(zone);
+    }
+}
+
+reactiveclass SiteMap(7) {
+    statevars {
+        int scientistZone;
+    }
+    SiteMap() { }
+    msgsrv position(int z) {
+        scientistZone = z;
+    }
+}
+
+reactiveclass SatelliteUplink(7) {
+    knownrebecs {
+        GroundControl ground;
+    }
+    statevars {
+        boolean busy;
+    }
+    SatelliteUplink() { }
+    msgsrv send(boolean d) {
+        busy = true;
+        ground.status(d) after(2);
+    }
+}
+
+reactiveclass GroundControl(7) {
+    statevars {
+        boolean siteInDanger;
+    }
+    GroundControl() { }
+    msgsrv status(boolean d) {
+        siteInDanger = d;
+    }
+}
+
+reactiveclass IncidentLog(7) {
+    statevars {
+        boolean lastInTime;
+        boolean entry;
+    }
+    IncidentLog() { }
+    msgsrv answer(boolean inTime) {
+        lastInTime = inTime;
+        entry = true;
+    }
+}
+
+reactiveclass RepairCrew(7) {
+    knownrebecs {
+        Admin admin;
+    }
+    statevars {
+        boolean onSite;
+    }
+    RepairCrew() { }
+    msgsrv repair() {
+        onSite = true;
+        admin.sensorRepaired() after(5);
+    }
+}
+
+reactiveclass MedicalTeam(7) {
+    statevars {
+        boolean alerted;
+    }
+    MedicalTeam() { }
+    msgsrv alert() {
+        alerted = true;
+    }
+}
+
+reactiveclass Radio(7) {
+    knownrebecs {
+        BaseCamp camp;
+    }
+    Radio() { }
+    msgsrv relay() {
+        camp.informed() after(1);
+    }
+}
+
+reactiveclass BaseCamp(7) {
+    statevars {
+        boolean knowsAbort;
+    }
+    BaseCamp() { }
+    msgsrv informed() {
+        knowsAbort = true;
+    }
+}
+
+reactiveclass WeatherStation(7) {
+    knownrebecs {
+        Admin admin;
+    }
+    statevars {
+        int wind;
+    }
+    WeatherStation() {
+        self.measure();
+    }
+    msgsrv measure() {
+        wind = ?(0, 1);
+        admin.weather(wind);
+        self.measure() after(10);
+    }
+}
+
+main {
+    Sensor sensor0(admin):(0, 10);
+    Sensor sensor1(admin):(1, 10);
+    Scientist scientist(admin, tracker, radio):();
+    Rescue rescue(admin, helicopter):();
+    Admin admin(sensor0, sensor1, scientist, rescue, logger, siren, uplink, incidents, crew, medical):();
+	DataLogger logger():();
+	Siren siren():();
+	Helicopter helicopter(hospital):();
+	Hospital hospital():();
+	GPSTracker tracker(siteMap):();
+	SiteMap siteMap():();
+	SatelliteUplink uplink(ground):();
+	GroundControl ground():();
+	IncidentLog incidents():();
+	RepairCrew crew(admin):();
+	MedicalTeam medical():();
+	Radio radio(camp):();
+	BaseCamp camp():();
+	WeatherStation weatherStation(admin):();
+}

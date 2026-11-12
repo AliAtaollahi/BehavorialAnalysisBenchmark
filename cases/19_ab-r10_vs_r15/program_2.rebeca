@@ -1,0 +1,65 @@
+reactiveclass A(10){
+  knownrebecs{ B b; AuditLog audit; RateLimiter limiter; }
+	statevars{
+		boolean throttled;
+	}
+  A(){ throttled = false; self.m1(true); }
+  msgsrv m1(boolean z){
+    limiter.request();
+    audit.append(z);
+    if (z) b.m2(); }
+
+  msgsrv throttle(boolean t){
+    throttled = t;
+  }
+}
+
+reactiveclass B(10){
+  knownrebecs{ A a; IDS ids; }
+  statevars {
+    boolean x, y;}
+  B(){ x = true; }
+  msgsrv m2(){
+    ids.inspect(x);
+    y = x;
+    x = !x;
+    if (y)
+      self.m2() after (5);
+    else
+      a.m1(x || y);}}
+
+reactiveclass AuditLog(10){
+  statevars{ boolean lastRequest; boolean written; }
+  AuditLog(){ lastRequest = false; written = false; }
+  msgsrv append(boolean z){
+    lastRequest = z;
+    written = true;
+  }
+}
+
+reactiveclass IDS(10){
+  statevars{ boolean lastPhase; boolean incident; }
+  IDS(){ lastPhase = false; incident = false; }
+  msgsrv inspect(boolean x){
+    if (x == lastPhase) incident = true;
+    lastPhase = x;
+  }
+}
+
+reactiveclass RateLimiter(10){
+  knownrebecs{ A a; }
+  statevars{ int tokens; }
+  RateLimiter(){ tokens = 2; }
+  msgsrv request(){
+    if (tokens > 0) { tokens = tokens - 1; a.throttle(false); }
+    else { tokens = 2; a.throttle(true); }
+  }
+}
+
+main {
+	A a(b, audit, limiter):();
+	B b(a, ids):();
+	AuditLog audit():();
+	IDS ids():();
+	RateLimiter limiter(a):();
+}

@@ -1,0 +1,116 @@
+reactiveclass Controller(10){
+	knownrebecs{
+            HC_Unit hc_unit;
+	}
+	statevars{
+		boolean heating_active;
+		int sensedValue;
+		int outdoorTemp;
+	}
+	Controller(){
+		heating_active = false;
+		sensedValue = 20;
+		outdoorTemp = 0;
+	}
+	msgsrv getSense(int temp){
+            sensedValue = temp;
+            if (21 > temp && heating_active == false) {
+            	hc_unit.activateh();
+            	heating_active = true;
+            } else if (21 <= temp && heating_active == true) {
+            	hc_unit.switchoff();
+            	heating_active = false;
+            }
+    }
+
+	msgsrv outdoor(int t){
+		outdoorTemp = t;
+	}
+}
+
+reactiveclass Room(5){
+	knownrebecs{
+            Sensor sensor;
+	}
+	statevars{
+            int temperature;
+            int outside_air_blowing;
+            int regulation;
+            }
+	Room(){
+
+            temperature = 21;
+            regulation = 0;
+            outside_air_blowing = 0;
+            self.tempchange();
+		}
+	msgsrv tempchange() {
+            	outside_air_blowing = ?(1,0);
+            	temperature = temperature - outside_air_blowing + regulation;
+            	sensor.getTemp(temperature);
+            	self.tempchange() after(10);
+	}
+
+	msgsrv regulate(int v) {
+		regulation = v;
+	}
+}
+
+reactiveclass Sensor(5){
+	knownrebecs{
+            Room room;
+            Controller controller;
+	}
+	msgsrv getTemp(int temp) {
+           controller.getSense(temp);
+   }
+}
+
+reactiveclass HC_Unit(5){
+	knownrebecs{
+            Room room;
+	}
+	statevars{
+			boolean heater_on;
+	}
+	HC_Unit(){
+			heater_on = false;
+	}
+
+	msgsrv activateh(){
+			room.regulate(1);
+			heater_on = true;
+	}
+
+	msgsrv switchoff(){
+			room.regulate(0);
+			heater_on = false;
+	}
+
+}
+
+reactiveclass WeatherStation(5){
+	knownrebecs{
+		Controller controller;
+	}
+	statevars{
+		int outside;
+	}
+	WeatherStation(){
+		outside = 5;
+		self.measure();
+	}
+	msgsrv measure(){
+		outside = ?(0, 5, 10);
+		controller.outdoor(outside);
+		self.measure() after(10);
+	}
+}
+
+main{
+	Room room(sensor):();
+	Controller controller(hc_unit):();
+	Sensor sensor(room,controller):();
+	HC_Unit hc_unit(room):();
+	WeatherStation weather(controller):();
+}

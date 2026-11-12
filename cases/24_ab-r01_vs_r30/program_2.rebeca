@@ -1,0 +1,39 @@
+reactiveclass A(10){
+  knownrebecs{ B b; }
+  A(){ self.m1(true); }
+  msgsrv m1(boolean z){
+    if (z) b.m2(); }}
+
+reactiveclass B(10){
+  knownrebecs{ A a; Watchdog watchdog; }
+  statevars {
+    boolean x, y;}
+  B(){ x = true; }
+  msgsrv m2(){
+    watchdog.heartbeat();
+    y = x;
+    x = !x;
+    if (y)
+      self.m2() after (5);
+    else
+      a.m1(x || y);}}
+
+reactiveclass Watchdog(10){
+  knownrebecs{ B b; }
+  statevars{ boolean alive; }
+  Watchdog(){ alive = true; self.check() after(10); }
+  msgsrv heartbeat(){
+    alive = true;
+  }
+  msgsrv check(){
+    if (!alive) b.m2();
+    alive = false;
+    self.check() after(10);
+  }
+}
+
+main {
+	A a(b):();
+	B b(a, watchdog):();
+	Watchdog watchdog(b):();
+}

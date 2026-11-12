@@ -1,0 +1,344 @@
+reactiveclass PLC1(10){
+	knownrebecs{
+		Pump1 pump1;
+		Valve valve;
+	}
+	statevars{
+		boolean openReqPlc2;
+		boolean pump1On;
+		boolean valveOpen;
+	}
+	PLC1(){
+		openReqPlc2 = false;
+		pump1On = false;
+		valveOpen = false;
+	}
+
+	msgsrv plc1_getSense(int waterLevel){
+		if (waterLevel == 1 && valveOpen) { valve.valve_close(); valveOpen = false; }
+		else if (waterLevel == 1 && !pump1On) { pump1.pump1_on(); pump1On = true; }
+		else if (waterLevel == 3 && pump1On) { pump1.pump1_off(); pump1On = false; }
+		else if (waterLevel >= 2 && openReqPlc2 && !valveOpen) { valve.valve_open(); valveOpen = true; }
+		else if (!openReqPlc2 && valveOpen) { valve.valve_close(); valveOpen = false; }
+	}
+	msgsrv plc1_openReq(){
+		openReqPlc2 = true;
+	}
+	msgsrv plc1_closeReq(){
+		openReqPlc2 = false;
+	}
+}
+
+reactiveclass PLC2(10){
+	knownrebecs{
+		PLC1 plc1;
+	}
+	statevars{
+		boolean requested;
+	}
+	PLC2(){
+		requested = false;
+	}
+
+	msgsrv plc2_getSense(int waterLevel){
+		if (waterLevel == 1 && !requested) { plc1.plc1_openReq(); requested = true; }
+		else if (waterLevel == 2 && requested) { plc1.plc1_closeReq(); requested = false; }
+	}
+}
+
+reactiveclass PLC3(10){
+	knownrebecs{
+		Pump2 pump2;
+		Pump2 pump2b;
+	}
+	statevars{
+		boolean pump2On;
+		boolean dutyA;
+	}
+	PLC3(){
+		pump2On = false;
+		dutyA = true;
+	}
+
+	msgsrv plc3_getSense(int waterLevel){
+
+		if (waterLevel == 2 && !pump2On) {
+			if (dutyA) pump2.pump2_on(); else pump2b.pump2_on();
+			pump2On = true;
+		} else if (waterLevel == 1 && pump2On) {
+			if (dutyA) pump2.pump2_off(); else pump2b.pump2_off();
+			pump2On = false;
+			dutyA = !dutyA;
+		}
+	}
+}
+
+reactiveclass Tank1(10){
+	knownrebecs{
+		sensorTank1 sensor;
+		Tank2 tank2;
+	}
+	statevars{
+		int level;
+		boolean pumping;
+		boolean draining;
+	}
+	Tank1(){
+		level = 1;
+		pumping = false;
+		draining = false;
+	}
+	msgsrv tank1_pump(boolean on){
+		pumping = on;
+	}
+	msgsrv tank1_valve(boolean open){
+		draining = open;
+	}
+
+	msgsrv tank1_status(){
+		if (pumping && level < 3) level = level + ?(0, 1);
+		if (draining && level > 1) {
+			level = level - 1;
+			tank2.tank2_waterIncrease();
+		}
+		sensor.sensor1_reportStatus(level);
+	}
+}
+
+reactiveclass Tank2(10){
+	knownrebecs{
+		sensorTank2 sensor;
+		reverseUnit unit;
+	}
+	statevars{
+		int level;
+	}
+	Tank2(){
+		level = 1;
+	}
+	msgsrv tank2_waterIncrease(){
+		if (level < 2) level = level + 1;
+	}
+	msgsrv tank2_waterDecrease(){
+		if (level > 1) level = level - 1;
+	}
+
+	msgsrv tank2_status(){
+		if (level == 2) unit.cleanWater();
+		sensor.sensor2_reportStatus(level);
+	}
+}
+
+reactiveclass Tank3(10){
+	knownrebecs{
+		sensorTank3 sensor;
+		ProductTank product;
+	}
+	statevars{
+		int level;
+		boolean delivering;
+	}
+	Tank3(){
+		level = 1;
+		delivering = false;
+	}
+	msgsrv tank3_pump(boolean on){
+		delivering = on;
+	}
+	msgsrv tank3_waterIncrease(){
+		if (level < 2) level = level + 1;
+	}
+
+	msgsrv tank3_status(){
+		if (delivering && level > 1) level = level - 1;
+		if (delivering) product.fill();
+		sensor.sensor3_reportStatus(level);
+	}
+}
+
+reactiveclass sensorTank1(10){
+	knownrebecs{
+		Tank1 tank1;
+		PLC1 plc1;
+	}
+	sensorTank1(){
+		self.sensor1_sense();
+	}
+	msgsrv sensor1_sense(){
+		tank1.tank1_status();
+		self.sensor1_sense() after(3);
+	}
+	msgsrv sensor1_reportStatus(int waterLevel){
+		plc1.plc1_getSense(waterLevel);
+	}
+}
+
+reactiveclass sensorTank2(10){
+	knownrebecs{
+		Tank2 tank2;
+		PLC2 plc2;
+	}
+	sensorTank2(){
+		self.sensor2_sense() after(1);
+	}
+	msgsrv sensor2_sense(){
+		tank2.tank2_status();
+		self.sensor2_sense() after(3);
+	}
+	msgsrv sensor2_reportStatus(int waterLevel){
+		plc2.plc2_getSense(waterLevel);
+	}
+}
+
+reactiveclass sensorTank3(10){
+	knownrebecs{
+		Tank3 tank3;
+		PLC3 plc3;
+	}
+	sensorTank3(){
+		self.sensor3_sense() after(2);
+	}
+	msgsrv sensor3_sense(){
+		tank3.tank3_status();
+		self.sensor3_sense() after(3);
+	}
+	msgsrv sensor3_reportStatus(int waterLevel){
+		plc3.plc3_getSense(waterLevel);
+	}
+}
+
+reactiveclass Pump1(10){
+	knownrebecs{
+		Tank1 tank1;
+		FlowTransmitter fit101;
+	}
+	statevars{
+		boolean pump1_on;
+	}
+	Pump1(){
+		pump1_on = false;
+	}
+	msgsrv pump1_on(){
+		fit101.flow(true);
+		pump1_on = true;
+		tank1.tank1_pump(true);
+	}
+	msgsrv pump1_off(){
+		fit101.flow(false);
+		pump1_on = false;
+		tank1.tank1_pump(false);
+	}
+}
+
+reactiveclass Valve(10){
+	knownrebecs{
+		Tank1 tank1;
+		FlowTransmitter fit201;
+	}
+	statevars{
+		boolean valve_open;
+	}
+	Valve(){
+		valve_open = false;
+	}
+	msgsrv valve_open(){
+		fit201.flow(true);
+		valve_open = true;
+		tank1.tank1_valve(true);
+	}
+	msgsrv valve_close(){
+		fit201.flow(false);
+		valve_open = false;
+		tank1.tank1_valve(false);
+	}
+}
+
+reactiveclass Pump2(10){
+	knownrebecs{
+		Tank3 tank3;
+	}
+	statevars{
+		boolean pump2_on;
+	}
+	Pump2(){
+		pump2_on = false;
+	}
+	msgsrv pump2_on(){
+		pump2_on = true;
+		tank3.tank3_pump(true);
+	}
+	msgsrv pump2_off(){
+		pump2_on = false;
+		tank3.tank3_pump(false);
+	}
+}
+
+reactiveclass reverseUnit(5){
+	knownrebecs{
+		Tank2 tank2;
+		Tank3 tank3;
+	}
+	statevars{
+		boolean drinkableWater;
+	}
+	reverseUnit(){
+		drinkableWater = false;
+	}
+
+	msgsrv cleanWater(){
+		drinkableWater = true;
+		tank2.tank2_waterDecrease();
+		tank3.tank3_waterIncrease();
+	}
+}
+
+reactiveclass ProductTank(10){
+	statevars{
+		int level;
+	}
+	ProductTank(){
+		level = 1;
+	}
+	msgsrv fill(){
+		if (level < 2) level = level + 1;
+		self.distribute() after(1);
+	}
+	msgsrv distribute(){
+		if (level > 1) level = level - 1;
+	}
+}
+
+reactiveclass FlowTransmitter(10){
+	statevars{
+		boolean flowing;
+	}
+	FlowTransmitter(){
+		flowing = false;
+	}
+	msgsrv flow(boolean f){
+		flowing = f;
+	}
+}
+
+main{
+	PLC1 plc1(pump1, valve):();
+	PLC2 plc2(plc1):();
+	PLC3 plc3(pump2, pump2b):();
+
+	Pump1 pump1(tank1, fit101):();
+	Pump2 pump2(tank3):();
+	Valve valve(tank1, fit201):();
+	reverseUnit unit(tank2, tank3):();
+
+	Tank1 tank1(sensor1, tank2):();
+	Tank2 tank2(sensor2, unit):();
+	Tank3 tank3(sensor3, product):();
+
+	sensorTank1 sensor1(tank1, plc1):();
+	sensorTank2 sensor2(tank2, plc2):();
+	sensorTank3 sensor3(tank3, plc3):();
+	ProductTank product():();
+	Pump2 pump2b(tank3):();
+	FlowTransmitter fit101():();
+	FlowTransmitter fit201():();
+}

@@ -1,0 +1,226 @@
+reactiveclass Sensor(7) {
+    knownrebecs {
+        Admin admin;
+    }
+
+    statevars {
+        int id;
+        int period;
+		byte netDelay;
+    }
+
+    Sensor(int myId, int myPeriod) {
+        id = myId;
+        period = myPeriod;
+		netDelay = 1;
+        self.doReport();
+    }
+
+    msgsrv doReport() {
+
+        admin.report(id, ?(2, 4)) after(netDelay);
+        self.doReport() after(period);
+    }
+}
+
+reactiveclass Scientist(7) {
+    knownrebecs {
+        Admin admin;
+		Radio radio;
+		GPSTracker tracker;
+    }
+
+    Scientist() { }
+
+    msgsrv abortPlan() {
+        admin.ack() after(?(1, 4));
+        tracker.fix();
+        radio.relay();
+    }
+}
+
+reactiveclass Rescue(7) {
+    knownrebecs {
+        Admin admin;
+    }
+
+    Rescue() { }
+
+    msgsrv go() {
+        admin.rescueReach() after(?(1, 2));
+    }
+}
+
+reactiveclass Admin(13) {
+    knownrebecs {
+        Sensor sensor0;
+        Sensor sensor1;
+        Scientist scientist;
+        Rescue rescue;
+		SatelliteUplink uplink;
+    }
+
+    statevars {
+        boolean reported0;
+        int sensorValue0;
+        boolean reported1;
+        int sensorValue1;
+        boolean sensorFailure;
+        boolean danger;
+        boolean scientistAck;
+        boolean waitingAck;
+        boolean scientistReached;
+        boolean scientistDead;
+
+		byte rescueDeadline;
+		byte netDelay;
+		byte adminCheckDelay;
+		byte scientistDeadline;
+    }
+
+    Admin() {
+		rescueDeadline = 5;
+		netDelay = 1;
+		adminCheckDelay = 10;
+		scientistDeadline = 3;
+        self.checkSensors() after(5);
+    }
+
+    msgsrv report(int sensorId, int value) {
+        if (sensorId == 0) {
+            reported0 = true;
+            sensorValue0 = value;
+        } else {
+            reported1 = true;
+            sensorValue1 = value;
+        }
+    }
+
+    msgsrv rescueReach() {
+        scientistReached = true;
+    }
+
+    msgsrv checkSensors() {
+        if (reported0) reported0 = false;
+        else sensorFailure = true;
+
+        if (reported1) reported1 = false;
+        else sensorFailure = true;
+
+        danger = false;
+        if (sensorValue0 > 3) danger = true;
+        if (sensorValue1 > 3) danger = true;
+        uplink.send(danger);
+
+        if (danger) {
+            waitingAck = true;
+            scientist.abortPlan() after(netDelay);
+            self.checkScientistAck() after(scientistDeadline);
+        }
+
+        self.checkSensors() after(adminCheckDelay);
+    }
+
+    msgsrv checkRescue() {
+        if (!scientistReached) {
+            scientistDead = true;
+        } else {
+            scientistReached = false;
+        }
+    }
+
+    msgsrv ack() {
+        if (waitingAck) scientistAck = true;
+    }
+
+    msgsrv checkScientistAck() {
+        if (!scientistAck) {
+            rescue.go() after(netDelay);
+            self.checkRescue() after(rescueDeadline);
+        }
+        scientistAck = false;
+        waitingAck = false;
+    }
+}
+
+reactiveclass SatelliteUplink(7) {
+    knownrebecs {
+        GroundControl ground;
+    }
+    statevars {
+        boolean busy;
+    }
+    SatelliteUplink() { }
+    msgsrv send(boolean d) {
+        busy = true;
+        ground.status(d) after(2);
+    }
+}
+
+reactiveclass GroundControl(7) {
+    statevars {
+        boolean siteInDanger;
+    }
+    GroundControl() { }
+    msgsrv status(boolean d) {
+        siteInDanger = d;
+    }
+}
+
+reactiveclass Radio(7) {
+    knownrebecs {
+        BaseCamp camp;
+    }
+    Radio() { }
+    msgsrv relay() {
+        camp.informed() after(1);
+    }
+}
+
+reactiveclass BaseCamp(7) {
+    statevars {
+        boolean knowsAbort;
+    }
+    BaseCamp() { }
+    msgsrv informed() {
+        knowsAbort = true;
+    }
+}
+
+reactiveclass GPSTracker(7) {
+    knownrebecs {
+        SiteMap map;
+    }
+    statevars {
+        int zone;
+    }
+    GPSTracker() { }
+    msgsrv fix() {
+        zone = ?(1, 2);
+        map.position(zone);
+    }
+}
+
+reactiveclass SiteMap(7) {
+    statevars {
+        int scientistZone;
+    }
+    SiteMap() { }
+    msgsrv position(int z) {
+        scientistZone = z;
+    }
+}
+
+main {
+    Sensor sensor0(admin):(0, 10);
+    Sensor sensor1(admin):(1, 10);
+    Scientist scientist(admin, radio, tracker):();
+    Rescue rescue(admin):();
+    Admin admin(sensor0, sensor1, scientist, rescue, uplink):();
+	SatelliteUplink uplink(ground):();
+	GroundControl ground():();
+	Radio radio(camp):();
+	BaseCamp camp():();
+	GPSTracker tracker(siteMap):();
+	SiteMap siteMap():();
+}

@@ -1,0 +1,1 @@
+plc1.plc1_getsense,pump1.pump1_on,pump1.pump1_off,valve.valve_open,valve.valve_close,time
