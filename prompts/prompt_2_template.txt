@@ -1,0 +1,11 @@
+You are here to judge if two Timed Rebeca programs are weak timed bisimilar.
+Please do not write any code for judge. Just read code and give your guess.
+[Program 1]:
+{ program_1_code }
+[Program 2]:
+{ program_2_code }
+[Observable messages]:
+{ observable_messages }
+Please only output the answer of whether the
+two programs are equivalent or not. You should
+only output YES or NO

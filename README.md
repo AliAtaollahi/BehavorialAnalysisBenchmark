@@ -7,6 +7,7 @@ the **40 selected comparison scenarios** in the supplied experiment artifact.
 ## Contents
 
 - `cases/`: 40 scenarios, eight for each of five subject models.
+- `prompts/`: reusable templates for the two prompt messages.
 - `answers.csv`: supplied expected verdicts, recorded Gemini/ChatGPT/Qwen answers,
   and the original shared-conversation links. A blank answer is missing data.
 - `validate.py`: dependency-free integrity check and recorded-result summary.
@@ -24,6 +25,20 @@ The programs, observable files, prompts, and answer table are preserved from the
 supplied `cases` artifact. Differences in prompt indentation are intentional.
 The selected pairs contain 45 distinct revisions; the full set of 150 revisions
 discussed in the paper is not included here.
+
+## Prompt templates
+
+Use these two messages in order for a new comparison:
+
+1. [Prompt 1](prompts/prompt_1.txt): the complete Timed Rebeca semantics and
+   weak timed bisimulation definition, extracted from the recorded case prompts.
+2. [Prompt 2 template](prompts/prompt_2_template.txt): the judgment request.
+   Replace `{ program_1_code }` and `{ program_2_code }` with the two programs,
+   and `{ observable_messages }` with the observable-message list. Send the
+   completed message after Prompt 1 in the same chat.
+
+The requested answer is only `YES` or `NO`. Each `cases/*/prompt.txt` preserves
+the original complete prompt for that scenario.
 
 ## Scenarios
 

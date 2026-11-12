@@ -1,4 +1,5 @@
 *.py text eol=lf
 *.md text eol=lf
+prompts/*.txt text eol=lf
 cases/** -text
 answers.csv -text
